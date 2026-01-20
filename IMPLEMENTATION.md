@@ -130,7 +130,8 @@ client.connect()
 
 ### Core
 - `weaviate-client==4.9.3`: Vector database client
-- `langchain==0.3.13`: LLM framework
+- `langchain==0.3.27`: LLM framework (updated for security)
+- `langchain-community==0.3.27`: LangChain community integrations (patched XXE vulnerability)
 - `langchain-ollama==0.2.0`: Ollama integration
 
 ### Document Processing
