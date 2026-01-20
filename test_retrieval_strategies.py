@@ -1,11 +1,3 @@
-"""
-Pytest tests to validate retrieval strategies implementation.
-
-This tests the core components without requiring a full benchmark run.
-
-Run with: pytest test_retrieval_strategies.py -v
-"""
-
 import pytest
 from src.retrieval_strategies import (
     RetrievalStrategy,

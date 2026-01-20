@@ -16,6 +16,7 @@ def configure_logging(level: str = "INFO") -> None:
 
     logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
     logging.getLogger("azure.storage").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 configure_logging(os.getenv("LOGGING_LEVEL", "INFO"))

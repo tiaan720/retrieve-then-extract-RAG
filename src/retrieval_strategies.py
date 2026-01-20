@@ -1,14 +1,3 @@
-"""
-Retrieval strategies for comparing different search approaches.
-
-Implements multiple retrieval strategies to compare performance and accuracy:
-1. StandardHNSW - Default fp32 HNSW index
-2. BinaryQuantized - Binary quantization (32x compression)
-3. HybridSearch - BM25 + Vector fusion
-4. CrossEncoderRerank - Two-stage retrieval with reranking
-5. BinaryInt8Staged - Article's approach (binary filter → int8 rescore)
-"""
-
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 from dataclasses import dataclass

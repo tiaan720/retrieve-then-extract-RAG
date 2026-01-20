@@ -190,7 +190,7 @@ class CollectionManager:
         for strategy_name, config in self.CONFIGS.items():
             self.create_collection(config)
         
-        logger.info("✓ All collections created")
+        logger.info("All collections created")
     
     def get_collection(self, strategy_name: str):
         """
@@ -285,7 +285,7 @@ class CollectionManager:
             except Exception as e:
                 logger.warning(f"Failed to delete {strategy_name}: {e}")
         
-        logger.info("✓ All collections deleted")
+        logger.info("All collections deleted")
     
     def list_collections(self) -> List[str]:
         """List all created collections."""
