@@ -31,6 +31,10 @@ class DocumentChunker:
         if not text:
             return []
         
+        # Validate configuration to prevent infinite loops
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(f"chunk_overlap ({self.chunk_overlap}) must be less than chunk_size ({self.chunk_size})")
+        
         chunks = []
         start = 0
         
@@ -52,12 +56,16 @@ class DocumentChunker:
             if chunk.strip():
                 chunks.append(chunk.strip())
             
-            # Move start position with overlap
-            start = end - self.chunk_overlap
+            # Move to next chunk with overlap
+            next_start = end - self.chunk_overlap
             
-            # Avoid infinite loop
-            if start <= 0 and len(chunks) > 0:
-                break
+            # Ensure we're making progress to avoid infinite loops
+            if next_start <= start:
+                next_start = start + 1
+            
+            start = next_start
+            
+            # Stop if we've reached or passed the end of text
             if end >= len(text):
                 break
         

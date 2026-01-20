@@ -56,6 +56,14 @@ def test_chunker():
     assert all("chunk_index" in chunk for chunk in chunked_docs), "Should have chunk metadata"
     print(f"✓ Document chunking works, created {len(chunked_docs)} chunks")
     
+    # Test edge case: chunk_overlap >= chunk_size should raise error
+    try:
+        bad_chunker = DocumentChunker(chunk_size=50, chunk_overlap=50)
+        bad_chunker.chunk_text("Some text here")
+        assert False, "Should raise ValueError for invalid overlap"
+    except ValueError as e:
+        print("✓ Correctly raises error for invalid chunk_overlap >= chunk_size")
+    
     print("DocumentChunker tests passed!\n")
 
 

@@ -30,9 +30,15 @@ class WeaviateClient:
             max_retries: Maximum number of connection retries
             retry_delay: Delay between retries in seconds
         """
+        from urllib.parse import urlparse
+        
         for attempt in range(max_retries):
             try:
-                self.client = weaviate.connect_to_local(host=self.url.replace("http://", "").replace(":8080", ""))
+                # Parse URL to extract host
+                parsed = urlparse(self.url)
+                host = parsed.hostname or "localhost"
+                
+                self.client = weaviate.connect_to_local(host=host)
                 print(f"Connected to Weaviate at {self.url}")
                 return
             except Exception as e:
