@@ -1,0 +1,329 @@
+# GitHub Copilot Agent Configuration
+# Weaviate Embedding Pipeline - RAG System
+
+## Project Context
+
+This is a production-ready Retrieval-Augmented Generation (RAG) pipeline using:
+- **Weaviate**: Vector database for semantic search with hybrid search and reranking
+- **Ollama**: Local LLM for embeddings (snowflake-arctic-embed:33m model, 384 dimensions)
+- **Wikipedia**: Document source for testing
+- **LangChain**: Framework for LLM applications
+
+The pipeline: Document Fetching → Text Extraction → Chunking → Embedding → Vector Storage → Hybrid Search + Reranking
+
+### Advanced Features
+- **Hybrid Search**: Combines vector similarity (semantic) + BM25 (keyword) search
+- **Binary Quantization**: Optional 32x memory reduction with minimal accuracy loss
+- **Reranking**: Cross-encoder reranking for improved relevance on top-k results
+
+## Development Principles
+
+### Test-Driven Development (TDD)
+**ALWAYS follow TDD when making changes:**
+
+1. **Write Tests First**: Before implementing any feature or fix:
+   - Write failing tests that describe the expected behavior
+   - Ensure tests are specific, isolated, and reproducible
+   - Run tests to confirm they fail for the right reason
+
+2. **Implement Minimally**: Write only enough code to make tests pass
+   - Keep changes focused and minimal
+   - Don't add features not covered by tests
+
+3. **Refactor**: After tests pass, improve code quality
+   - Clean up duplication
+   - Improve naming and structure
+   - Ensure all tests still pass
+
+4. **Test Coverage**: Ensure comprehensive coverage
+   - Unit tests for individual components
+   - Integration tests for pipelines
+   - Edge cases and error handling
+
+## Installation
+
+### Prerequisites
+- Python 3.11 or higher
+- Docker and Docker Compose (for Weaviate)
+- Ollama installed locally ([Install Ollama](https://ollama.ai/))
+
+### Setup Steps
+
+1. **Install Dependencies** (using uv - recommended):
+```bash
+# Install uv if not already installed
+pip install uv
+
+# Sync dependencies from pyproject.toml
+uv sync
+```
+
+Alternatively, using pip:
+```bash
+pip install -r requirements.txt
+```
+
+2. **Start Ollama and Pull Embedding Model**:
+```bash
+# Start Ollama service (if not running)
+ollama serve
+
+# In another terminal, pull the embedding model
+ollama pull snowflake-arctic-embed:33m
+```
+
+3. **Start Weaviate with Docker**:
+```bash
+docker-compose up -d
+```
+
+4. **Configure Environment** (optional):
+```bash
+# Copy example environment file
+cp .env.example .env
+
+# Edit .env to customize:
+# - WEAVIATE_URL (default: http://localhost:8080)
+# - OLLAMA_BASE_URL (default: http://localhost:11434)
+# - OLLAMA_MODEL (default: snowflake-arctic-embed:33m)
+# - EMBEDDING_DIMENSIONS (default: 384)
+# - ENABLE_BINARY_QUANTIZATION (default: false) - Enable 32x memory reduction
+# - CHUNK_SIZE (default: 500)
+# - CHUNK_OVERLAP (default: 50)
+# - LOGGING_LEVEL (default: WARNING)
+```
+
+## Running the Code
+
+### Run Component Tests
+Test individual components in isolation:
+```bash
+python test_components.py
+```
+
+### Run the Complete Pipeline
+Execute the full RAG pipeline:
+```bash
+python main.py
+```
+
+This will:
+1. Fetch Wikipedia articles on AI topics
+2. Clean and extract text
+3. Chunk documents into overlapping segments
+4. Generate embeddings using Ollama
+5. Store chunks with embeddings in Weaviate
+6. Perform test queries (vector and hybrid search)
+
+### Interactive Python Usage
+```python
+from src.config import Config
+from src.document_fetcher import DocumentFetcher
+from src.text_extractor import TextExtractor
+from src.chunker import DocumentChunker
+from src.embedder import EmbeddingGenerator
+from src.weaviate_client import WeaviateClient
+
+# Initialize components
+config = Config()
+fetcher = DocumentFetcher()
+extractor = TextExtractor()
+chunker = DocumentChunker(config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+embedder = EmbeddingGenerator(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
+client = WeaviateClient(config.WEAVIATE_URL)
+
+# Fetch and process documents
+docs = fetcher.fetch_wikipedia_articles(["Machine Learning"])
+cleaned_docs = extractor.extract_from_documents(docs)
+chunks = chunker.chunk_documents(cleaned_docs)
+
+# Generate embeddings and store
+for chunk in chunks:
+    chunk['embedding'] = embedder.embed_text(chunk['content'])
+
+client.connect()
+client.create_schema()
+client.store_chunks(chunks)
+
+# Query - Vector Search
+query_vec = embedder.embed_text("What is machine learning?")
+results = client.query(query_vec, limit=5)
+
+# Query - Hybrid Search (BM25 + Vector)
+results = client.hybrid_query(
+    query_text="machine learning algorithms",
+    query_vector=query_vec,
+    limit=5,
+    alpha=0.5  # 0.5 = balanced, 1.0 = pure vector, 0.0 = pure keyword
+)
+
+client.close()
+```
+
+## Testing Guidelines
+
+### Testing Principles (TDD)
+
+1. **Write tests before code**: Define expected behavior first
+2. **Keep tests isolated**: Each test should be independent
+3. **Test one thing**: Each test should verify a single behavior
+4. **Use descriptive names**: Test names should describe what they verify
+5. **Assert clearly**: Use specific assertions with clear messages
+
+### Test Structure
+
+Tests are located in `test_components.py` and organized by component:
+
+- **TextExtractor tests**: Text cleaning and normalization
+- **DocumentChunker tests**: Chunking logic, overlap validation, edge cases
+- **Integration tests**: End-to-end component integration
+
+### Running Tests
+
+```bash
+# Run all tests
+python test_components.py
+
+# Expected output:
+# - ✓ marks for passing tests
+# - Error details for failing tests
+# - Summary of results
+```
+
+### Adding New Tests
+
+When adding features, follow TDD:
+
+```python
+# 1. Write the test first (it should fail)
+def test_new_feature():
+    """Test description of expected behavior."""
+    # Arrange: Set up test data
+    component = Component()
+    input_data = "test input"
+    
+    # Act: Execute the feature
+    result = component.new_feature(input_data)
+    
+    # Assert: Verify expected behavior
+    assert result == expected_output, "Feature should produce expected output"
+
+# 2. Run test - it should fail
+# 3. Implement the feature minimally
+# 4. Run test - it should pass
+# 5. Refactor if needed
+```
+
+### Test Coverage Areas
+
+Always ensure tests cover:
+- **Happy path**: Normal, expected usage
+- **Edge cases**: Empty inputs, boundary values, large inputs
+- **Error handling**: Invalid inputs, connection failures, timeouts
+- **Integration**: Components working together correctly
+
+## Code Quality Standards
+
+### Logging
+- Use `logger` from `src.logger` (never use `print`)
+- Set logging level via `LOGGING_LEVEL` environment variable
+- Use appropriate log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+### Configuration
+- All settings in `src/config.py` using Pydantic BaseSettings
+- Environment variables via `.env` file
+- Field aliases match environment variable names
+
+### Code Style
+- Line length: 120 characters
+- Target: Python 3.11+
+- Use type hints for function signatures
+- Keep docstrings concise and informative
+
+## Project Structure
+
+```
+.
+├── .agent                      # This file - agent configuration
+├── .env.example               # Example environment variables
+├── pyproject.toml             # Project dependencies (uv/pip)
+├── requirements.txt           # Generated from pyproject.toml
+├── docker-compose.yml         # Weaviate Docker setup
+├── main.py                    # Main pipeline orchestration
+├── test_components.py         # Component and integration tests
+├── README.md                  # User documentation
+└── src/
+    ├── __init__.py
+    ├── logger.py              # Shared logging configuration
+    ├── config.py              # Pydantic configuration
+    ├── document_fetcher.py    # Wikipedia document fetching
+    ├── text_extractor.py      # Text cleaning and normalization
+    ├── chunker.py             # Document chunking with overlap
+    ├── embedder.py            # Ollama embedding generation
+    └── weaviate_client.py     # Weaviate operations (CRUD, search)
+```
+
+## Key Features
+
+### Weaviate Schema
+- **Vector Index**: HNSW with cosine similarity
+- **Hybrid Search**: BM25 keyword + vector similarity
+- **Properties**: content, title, url, chunk_index, total_chunks, source, language
+- **Optimized**: ef_construction=128, max_connections=64
+
+### Search Methods
+- `query()`: Pure vector similarity search
+- `hybrid_query()`: Combined BM25 + vector search with alpha parameter
+
+## Troubleshooting
+
+### Services Not Running
+```bash
+# Check Weaviate
+docker-compose ps
+
+# Check Ollama
+curl http://localhost:11434/api/tags
+
+# Check Ollama model
+ollama list
+```
+
+### Dependencies Issues
+```bash
+# Regenerate requirements.txt from pyproject.toml
+uv pip compile pyproject.toml -o requirements.txt
+
+# Reinstall dependencies
+uv sync --force
+```
+
+## Development Workflow
+
+When working on this project:
+
+1. **Understand the requirement** - Read issue/task carefully
+2. **Write tests first** (TDD) - Define expected behavior
+3. **Run tests** - Confirm they fail
+4. **Implement minimally** - Make tests pass
+5. **Run tests again** - Confirm they pass
+6. **Refactor** - Improve code quality
+7. **Run all tests** - Ensure nothing broke
+8. **Commit** - With clear, descriptive message
+
+## Important Notes
+
+- **Never skip tests**: All changes must have corresponding tests
+- **Follow TDD**: Write tests before implementation
+- **Use logging**: Never use print statements
+- **Type hints**: Always use type hints for better code clarity
+- **Minimal changes**: Keep changes focused and minimal
+- **Documentation**: Update docstrings when changing behavior
+
+## Getting Help
+
+- Check `README.md` for user documentation
+- Review `test_components.py` for usage examples
+- Examine existing code for patterns and conventions
+- Review Weaviate docs: https://weaviate.io/developers/weaviate
+- Review LangChain docs: https://python.langchain.com/

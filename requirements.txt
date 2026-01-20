@@ -1,0 +1,22 @@
+# This file is auto-generated from pyproject.toml
+# To update dependencies:
+#   1. Edit pyproject.toml
+#   2. Run: uv pip compile pyproject.toml -o requirements.txt
+#   3. Or: uv sync
+
+# Core dependencies
+weaviate-client==4.9.3
+langchain==0.3.27
+langchain-community==0.3.27
+langchain-ollama==0.2.0
+
+# Document processing
+requests==2.32.3
+beautifulsoup4==4.12.3
+markdown==3.7
+wikipedia==1.4.0
+
+# Utilities
+pydantic==2.10.5
+pydantic-settings==2.7.1
+
