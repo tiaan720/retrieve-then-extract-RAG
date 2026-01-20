@@ -1,11 +1,13 @@
 """
-Text extraction and preprocessing module using LangChain.
+Text extraction and preprocessing module.
+Note: Wikipedia already provides clean text, so minimal processing is needed.
+For more complex extraction needs, consider using LangChain's document loaders.
 """
 from typing import List
 
 
 class TextExtractor:
-    """Extracts and cleans text using LangChain utilities."""
+    """Extracts and cleans text from documents."""
     
     def __init__(self):
         """Initialize the text extractor."""
@@ -13,7 +15,7 @@ class TextExtractor:
     
     def extract_and_clean(self, text: str) -> str:
         """
-        Extract and clean text content using LangChain's text processing approach.
+        Clean text content with basic normalization.
         
         Args:
             text: Raw text content
@@ -24,13 +26,12 @@ class TextExtractor:
         if not text:
             return ""
         
-        # LangChain-style text processing - normalize whitespace
-        # Remove extra whitespace while preserving single spaces and newlines
+        # Basic text normalization
         lines = text.split('\n')
         cleaned_lines = [' '.join(line.split()) for line in lines]
         text = '\n'.join(cleaned_lines)
         
-        # Remove multiple consecutive newlines
+        # Remove excessive newlines
         while '\n\n\n' in text:
             text = text.replace('\n\n\n', '\n\n')
         
@@ -63,3 +64,6 @@ class TextExtractor:
             List of document dictionaries with cleaned content
         """
         return [self.extract_from_document(doc) for doc in docs]
+
+
+
