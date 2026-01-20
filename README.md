@@ -4,8 +4,8 @@ A RAG (Retrieval-Augmented Generation) pipeline that can do ranged queries using
 
 ## Features
 
-- **Document Fetching**: Automatically fetches documentation from open-source libraries
-- **Text Extraction**: Cleans and preprocesses text content
+- **Document Fetching**: Fetches Wikipedia articles for RAG testing
+- **Text Extraction**: Cleans and preprocesses text content using LangChain approach
 - **Chunking**: Intelligently splits documents into overlapping chunks
 - **Embeddings**: Generates embeddings using Ollama via LangChain
 - **Vector Storage**: Stores and retrieves documents using Weaviate
@@ -16,14 +16,14 @@ The pipeline follows a sequential flow:
 
 ```
 ┌─────────────────────┐
-│  Document Fetcher   │  Fetch docs from APIs/URLs
+│  Document Fetcher   │  Fetch articles from Wikipedia
 │  (document_fetcher) │
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
 │  Text Extractor     │  Clean and normalize text
-│  (text_extractor)   │
+│  (text_extractor)   │  (LangChain approach)
 └──────────┬──────────┘
            │
            ▼
@@ -50,8 +50,8 @@ The pipeline follows a sequential flow:
 
 **Key Components:**
 
-1. **DocumentFetcher**: Retrieves documentation from web sources with BeautifulSoup
-2. **TextExtractor**: Cleans and normalizes raw text content
+1. **DocumentFetcher**: Retrieves articles from Wikipedia using the wikipedia-py library
+2. **TextExtractor**: Cleans and normalizes raw text content using LangChain-style processing
 3. **DocumentChunker**: Splits documents with configurable chunk size and overlap
 4. **EmbeddingGenerator**: Uses LangChain's OllamaEmbeddings for flexibility
 5. **WeaviateClient**: Manages vector database operations with retry logic
@@ -64,29 +64,13 @@ The pipeline follows a sequential flow:
 
 ## Quick Start
 
-### Option 1: Automated Setup (Recommended)
-
-Run the quick start script (Linux/macOS):
-
-```bash
-./quickstart.sh
-```
-
-This script will:
-- Install Python dependencies
-- Pull the Ollama embedding model
-- Start Weaviate with Docker
-- Run a demonstration
-
-### Option 2: Manual Setup
-
-#### 1. Install Dependencies
+### 1. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 2. Start Ollama and Pull the Embedding Model
+### 2. Start Ollama and Pull the Embedding Model
 
 ```bash
 # Start Ollama (if not already running)
@@ -96,7 +80,7 @@ ollama serve
 ollama pull nomic-embed-text
 ```
 
-#### 3. Start Weaviate with Docker
+### 3. Start Weaviate with Docker
 
 ```bash
 docker-compose up -d
@@ -104,7 +88,7 @@ docker-compose up -d
 
 This will start a Weaviate instance on `http://localhost:8080`.
 
-#### 4. Configure Environment (Optional)
+### 4. Configure Environment (Optional)
 
 Copy the example environment file and adjust settings if needed:
 
@@ -118,16 +102,6 @@ Edit `.env` to configure:
 - Chunk size and overlap
 
 ## Usage
-
-### Try the Demo First
-
-Before running the full pipeline, try the demo to understand the workflow:
-
-```bash
-python demo.py
-```
-
-This demonstrates the pipeline steps without requiring Ollama or Weaviate to be running.
 
 ### Run Component Tests
 
@@ -144,45 +118,34 @@ python main.py
 ```
 
 This will:
-1. Fetch sample documentation (LangChain docs by default)
+1. Fetch Wikipedia articles on AI topics
 2. Extract and clean the text
 3. Chunk the documents
 4. Generate embeddings using Ollama
 5. Store everything in Weaviate
 6. Run a test query
 
-### Use Custom Documents
-
-Edit `example_usage.py` to add your own URLs:
-
-```python
-custom_urls = [
-    "https://your-docs-url.com/page1",
-    "https://your-docs-url.com/page2",
-]
-```
-
-Then run:
-
-```bash
-python example_usage.py
-```
-
 ### Query Example
 
 ```python
 from src.config import Config
+from src.document_fetcher import DocumentFetcher
 from src.embedder import EmbeddingGenerator
 from src.weaviate_client import WeaviateClient
 
 # Initialize
 config = Config()
+fetcher = DocumentFetcher()
 embedder = EmbeddingGenerator(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
 weaviate_client = WeaviateClient(config.WEAVIATE_URL)
 
+# Fetch Wikipedia articles
+topics = ["Machine learning", "Neural networks"]
+docs = fetcher.fetch_wikipedia_articles(topics)
+
 # Connect and query
 weaviate_client.connect()
-query_embedding = embedder.embed_text("Your query here")
+query_embedding = embedder.embed_text("What is machine learning?")
 results = weaviate_client.query(query_embedding, limit=5)
 
 for result in results:
@@ -199,16 +162,12 @@ weaviate_client.close()
 .
 ├── docker-compose.yml          # Weaviate Docker configuration
 ├── requirements.txt            # Python dependencies
-├── setup.py                    # Package setup configuration
 ├── .env.example               # Example environment configuration
-├── quickstart.sh              # Automated setup script
 ├── main.py                    # Main pipeline script
-├── demo.py                    # Demo without external services
 ├── test_components.py         # Component tests
-├── example_usage.py           # Example usage with custom URLs
 └── src/
     ├── config.py              # Configuration settings
-    ├── document_fetcher.py    # Document fetching logic
+    ├── document_fetcher.py    # Document fetching from Wikipedia
     ├── text_extractor.py      # Text extraction and cleaning
     ├── chunker.py             # Document chunking
     ├── embedder.py            # Embedding generation with Ollama

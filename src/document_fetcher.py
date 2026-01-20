@@ -1,25 +1,28 @@
 """
-Document fetcher module to retrieve documentation from open-source libraries.
+Document fetcher module to retrieve documentation from Wikipedia.
 """
-import requests
+import wikipedia
 from typing import List, Dict
-from bs4 import BeautifulSoup
 
 
 class DocumentFetcher:
-    """Fetches documentation from open-source library websites."""
+    """Fetches documents from Wikipedia for RAG testing."""
     
-    def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (compatible; DocumentFetcher/1.0)'
-        })
-    
-    def fetch_langchain_docs(self, max_docs: int = 10) -> List[Dict[str, str]]:
+    def __init__(self, language: str = 'en'):
         """
-        Fetch documentation from LangChain docs as an example.
+        Initialize the Wikipedia document fetcher.
         
         Args:
+            language: Wikipedia language code (default: 'en')
+        """
+        wikipedia.set_lang(language)
+    
+    def fetch_wikipedia_articles(self, topics: List[str], max_docs: int = 10) -> List[Dict[str, str]]:
+        """
+        Fetch Wikipedia articles for given topics.
+        
+        Args:
+            topics: List of Wikipedia article topics to fetch
             max_docs: Maximum number of documents to fetch
             
         Returns:
@@ -27,105 +30,81 @@ class DocumentFetcher:
         """
         docs = []
         
-        # Sample URLs from LangChain documentation
-        base_urls = [
-            "https://python.langchain.com/docs/get_started/introduction",
-            "https://python.langchain.com/docs/get_started/quickstart",
-            "https://python.langchain.com/docs/concepts/",
-            "https://python.langchain.com/docs/tutorials/",
-        ]
-        
-        for url in base_urls[:max_docs]:
+        for topic in topics[:max_docs]:
             try:
-                print(f"Fetching: {url}")
-                response = self.session.get(url, timeout=10)
-                response.raise_for_status()
+                print(f"Fetching Wikipedia article: {topic}")
                 
-                soup = BeautifulSoup(response.text, 'html.parser')
+                # Search for the topic and get the best match
+                search_results = wikipedia.search(topic, results=1)
+                if not search_results:
+                    print(f"  No results found for: {topic}")
+                    continue
                 
-                # Extract title
-                title = soup.find('title')
-                title_text = title.get_text() if title else url
+                page_title = search_results[0]
+                page = wikipedia.page(page_title, auto_suggest=False)
                 
-                # Extract main content (adjust selector based on actual site structure)
-                content = ""
+                docs.append({
+                    'title': page.title,
+                    'url': page.url,
+                    'content': page.content
+                })
+                print(f"  Successfully fetched: {page.title}")
                 
-                # Try common content containers
-                main_content = (
-                    soup.find('main') or 
-                    soup.find('article') or 
-                    soup.find('div', class_='content') or
-                    soup.find('body')
-                )
-                
-                if main_content:
-                    # Remove script and style tags
-                    for tag in main_content(['script', 'style', 'nav', 'header', 'footer']):
-                        tag.decompose()
-                    
-                    content = main_content.get_text(separator='\n', strip=True)
-                
-                if content:
+            except wikipedia.exceptions.DisambiguationError as e:
+                # If topic is ambiguous, take the first option
+                print(f"  Disambiguation for '{topic}', using: {e.options[0]}")
+                try:
+                    page = wikipedia.page(e.options[0], auto_suggest=False)
                     docs.append({
-                        'title': title_text,
-                        'url': url,
-                        'content': content
+                        'title': page.title,
+                        'url': page.url,
+                        'content': page.content
                     })
-                    print(f"Successfully fetched: {title_text}")
+                    print(f"  Successfully fetched: {page.title}")
+                except Exception as inner_e:
+                    print(f"  Error fetching disambiguation option: {inner_e}")
                     
+            except wikipedia.exceptions.PageError:
+                print(f"  Page not found: {topic}")
+                
             except Exception as e:
-                print(f"Error fetching {url}: {e}")
+                print(f"  Error fetching {topic}: {e}")
                 continue
         
         return docs
     
-    def fetch_custom_docs(self, urls: List[str]) -> List[Dict[str, str]]:
+    def fetch_random_articles(self, count: int = 5) -> List[Dict[str, str]]:
         """
-        Fetch documentation from custom URLs.
+        Fetch random Wikipedia articles.
         
         Args:
-            urls: List of URLs to fetch
+            count: Number of random articles to fetch
             
         Returns:
             List of dictionaries with 'title', 'url', and 'content' keys
         """
         docs = []
         
-        for url in urls:
-            try:
-                print(f"Fetching: {url}")
-                response = self.session.get(url, timeout=10)
-                response.raise_for_status()
+        try:
+            random_titles = wikipedia.random(count)
+            if isinstance(random_titles, str):
+                random_titles = [random_titles]
                 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Extract title
-                title = soup.find('title')
-                title_text = title.get_text() if title else url
-                
-                # Extract main content
-                main_content = (
-                    soup.find('main') or 
-                    soup.find('article') or 
-                    soup.find('div', class_='content') or
-                    soup.find('body')
-                )
-                
-                if main_content:
-                    for tag in main_content(['script', 'style', 'nav', 'header', 'footer']):
-                        tag.decompose()
-                    
-                    content = main_content.get_text(separator='\n', strip=True)
-                    
+            for title in random_titles:
+                try:
+                    print(f"Fetching random article: {title}")
+                    page = wikipedia.page(title, auto_suggest=False)
                     docs.append({
-                        'title': title_text,
-                        'url': url,
-                        'content': content
+                        'title': page.title,
+                        'url': page.url,
+                        'content': page.content
                     })
-                    print(f"Successfully fetched: {title_text}")
+                    print(f"  Successfully fetched: {page.title}")
+                except Exception as e:
+                    print(f"  Error fetching {title}: {e}")
+                    continue
                     
-            except Exception as e:
-                print(f"Error fetching {url}: {e}")
-                continue
+        except Exception as e:
+            print(f"Error fetching random articles: {e}")
         
         return docs

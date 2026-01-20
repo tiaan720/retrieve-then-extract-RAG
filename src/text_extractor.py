@@ -1,19 +1,19 @@
 """
-Text extraction and preprocessing module.
+Text extraction and preprocessing module using LangChain.
 """
-import re
 from typing import List
 
 
 class TextExtractor:
-    """Extracts and cleans text from raw document content."""
+    """Extracts and cleans text using LangChain utilities."""
     
     def __init__(self):
+        """Initialize the text extractor."""
         pass
     
     def extract_and_clean(self, text: str) -> str:
         """
-        Extract and clean text content.
+        Extract and clean text content using LangChain's text processing approach.
         
         Args:
             text: Raw text content
@@ -24,16 +24,17 @@ class TextExtractor:
         if not text:
             return ""
         
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text)
+        # LangChain-style text processing - normalize whitespace
+        # Remove extra whitespace while preserving single spaces and newlines
+        lines = text.split('\n')
+        cleaned_lines = [' '.join(line.split()) for line in lines]
+        text = '\n'.join(cleaned_lines)
         
-        # Remove multiple newlines
-        text = re.sub(r'\n\s*\n', '\n\n', text)
+        # Remove multiple consecutive newlines
+        while '\n\n\n' in text:
+            text = text.replace('\n\n\n', '\n\n')
         
-        # Strip leading/trailing whitespace
-        text = text.strip()
-        
-        return text
+        return text.strip()
     
     def extract_from_document(self, doc: dict) -> dict:
         """

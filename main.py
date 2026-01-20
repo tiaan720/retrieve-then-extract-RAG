@@ -37,9 +37,16 @@ def main():
     
     try:
         # Fetch documents
-        print("\n2. Fetching documents...")
-        # Using sample documentation - can be replaced with custom URLs
-        docs = fetcher.fetch_langchain_docs(max_docs=5)
+        print("\n2. Fetching documents from Wikipedia...")
+        # Fetch Wikipedia articles on various topics for RAG testing
+        topics = [
+            "Artificial intelligence",
+            "Machine learning",
+            "Natural language processing",
+            "Deep learning",
+            "Neural network"
+        ]
+        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=5)
         print(f"Fetched {len(docs)} documents")
         
         if not docs:
