@@ -2,41 +2,27 @@
 Shared logger utility for the pipeline.
 """
 import logging
-import sys
+import os
 
 
-def setup_logger(name: str = "pipeline", level: int = logging.INFO) -> logging.Logger:
-    """
-    Setup and configure logger for the pipeline.
-    
+def configure_logging(level: str = "INFO") -> None:
+    """Configure logging with the specified level.
+
     Args:
-        name: Logger name
-        level: Logging level
-        
-    Returns:
-        Configured logger instance
+        level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    # Remove existing handlers
-    logger.handlers.clear()
-    
-    # Create console handler
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(level)
-    
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    handler.setFormatter(formatter)
-    
-    logger.addHandler(handler)
-    
-    return logger
 
+    logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+    logging.getLogger("azure.storage").setLevel(logging.WARNING)
+
+
+configure_logging(os.getenv("LOGGING_LEVEL", "WARNING"))
 
 # Default logger instance
-logger = setup_logger()
+logger = logging.getLogger("pipeline")
+

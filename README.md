@@ -66,6 +66,12 @@ The pipeline follows a sequential flow:
 
 ### 1. Install Dependencies
 
+Using uv (recommended):
+```bash
+uv sync
+```
+
+Or using pip:
 ```bash
 pip install -r requirements.txt
 ```
@@ -125,37 +131,6 @@ This will:
 5. Store everything in Weaviate
 6. Run a test query
 
-### Query Example
-
-```python
-from src.config import Config
-from src.document_fetcher import DocumentFetcher
-from src.embedder import EmbeddingGenerator
-from src.weaviate_client import WeaviateClient
-
-# Initialize
-config = Config()
-fetcher = DocumentFetcher()
-embedder = EmbeddingGenerator(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
-weaviate_client = WeaviateClient(config.WEAVIATE_URL)
-
-# Fetch Wikipedia articles
-topics = ["Machine learning", "Neural networks"]
-docs = fetcher.fetch_wikipedia_articles(topics)
-
-# Connect and query
-weaviate_client.connect()
-query_embedding = embedder.embed_text("What is machine learning?")
-results = weaviate_client.query(query_embedding, limit=5)
-
-for result in results:
-    print(f"Title: {result['title']}")
-    print(f"Content: {result['content'][:200]}...")
-    print()
-
-weaviate_client.close()
-```
-
 ## Project Structure
 
 ```
@@ -184,45 +159,3 @@ Default settings in `.env`:
 - `CHUNK_SIZE`: Size of text chunks in characters (default: `500`)
 - `CHUNK_OVERLAP`: Overlap between chunks (default: `50`)
 
-## Troubleshooting
-
-### Weaviate Connection Issues
-
-Make sure Weaviate is running:
-```bash
-docker-compose ps
-```
-
-Check Weaviate logs:
-```bash
-docker-compose logs weaviate
-```
-
-### Ollama Connection Issues
-
-Verify Ollama is running:
-```bash
-curl http://localhost:11434/api/tags
-```
-
-Make sure the embedding model is pulled:
-```bash
-ollama list
-```
-
-### Module Import Errors
-
-Make sure you're running from the project root directory and all dependencies are installed:
-```bash
-pip install -r requirements.txt
-```
-
-## Stopping Services
-
-```bash
-# Stop Weaviate
-docker-compose down
-
-# Optional: Remove volumes to clear all data
-docker-compose down -v
-```

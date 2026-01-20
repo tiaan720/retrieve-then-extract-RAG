@@ -1,3 +1,9 @@
+# This file is auto-generated from pyproject.toml
+# To update dependencies:
+#   1. Edit pyproject.toml
+#   2. Run: uv pip compile pyproject.toml -o requirements.txt
+#   3. Or: uv sync
+
 # Core dependencies
 weaviate-client==4.9.3
 langchain==0.3.27
