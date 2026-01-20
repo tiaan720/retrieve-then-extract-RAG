@@ -10,6 +10,52 @@ A RAG (Retrieval-Augmented Generation) pipeline that can do ranged queries using
 - **Embeddings**: Generates embeddings using Ollama via LangChain
 - **Vector Storage**: Stores and retrieves documents using Weaviate
 
+## Pipeline Architecture
+
+The pipeline follows a sequential flow:
+
+```
+┌─────────────────────┐
+│  Document Fetcher   │  Fetch docs from APIs/URLs
+│  (document_fetcher) │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Text Extractor     │  Clean and normalize text
+│  (text_extractor)   │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Document Chunker   │  Split into overlapping chunks
+│  (chunker)          │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Embedding Gen.     │  Generate vectors via Ollama
+│  (embedder)         │  using nomic-embed-text
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Weaviate Client    │  Store chunks + embeddings
+│  (weaviate_client)  │  in vector database
+└─────────────────────┘
+           │
+           ▼
+    [Query Interface]
+```
+
+**Key Components:**
+
+1. **DocumentFetcher**: Retrieves documentation from web sources with BeautifulSoup
+2. **TextExtractor**: Cleans and normalizes raw text content
+3. **DocumentChunker**: Splits documents with configurable chunk size and overlap
+4. **EmbeddingGenerator**: Uses LangChain's OllamaEmbeddings for flexibility
+5. **WeaviateClient**: Manages vector database operations with retry logic
+
 ## Prerequisites
 
 - Python 3.8+
