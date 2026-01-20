@@ -4,13 +4,16 @@ This document provides detailed examples of how to use each component of the pip
 
 ## 1. Document Fetching
 
-### Fetch from LangChain Documentation
+### Fetch Wikipedia Articles
 
 ```python
 from src.document_fetcher import DocumentFetcher
 
 fetcher = DocumentFetcher()
-docs = fetcher.fetch_langchain_docs(max_docs=5)
+
+# Fetch specific topics
+topics = ["Machine learning", "Artificial intelligence", "Neural network"]
+docs = fetcher.fetch_wikipedia_articles(topics, max_docs=5)
 
 for doc in docs:
     print(f"Title: {doc['title']}")
@@ -18,19 +21,16 @@ for doc in docs:
     print(f"Content length: {len(doc['content'])} chars\n")
 ```
 
-### Fetch Custom URLs
+### Fetch Random Wikipedia Articles
 
 ```python
 from src.document_fetcher import DocumentFetcher
 
 fetcher = DocumentFetcher()
-custom_urls = [
-    "https://docs.python.org/3/tutorial/index.html",
-    "https://docs.python.org/3/library/index.html",
-]
 
-docs = fetcher.fetch_custom_docs(custom_urls)
-print(f"Fetched {len(docs)} documents")
+# Fetch random articles
+docs = fetcher.fetch_random_articles(count=3)
+print(f"Fetched {len(docs)} random articles")
 ```
 
 ## 2. Text Extraction
@@ -266,8 +266,9 @@ chunker = DocumentChunker(config.CHUNK_SIZE, config.CHUNK_OVERLAP)
 embedder = EmbeddingGenerator(config.OLLAMA_BASE_URL, config.OLLAMA_MODEL)
 weaviate = WeaviateClient(config.WEAVIATE_URL, config.COLLECTION_NAME)
 
-# Fetch documents
-docs = fetcher.fetch_langchain_docs(max_docs=3)
+# Fetch Wikipedia articles
+topics = ["Machine learning", "Deep learning", "Neural network"]
+docs = fetcher.fetch_wikipedia_articles(topics, max_docs=3)
 
 # Process documents
 cleaned_docs = extractor.extract_from_documents(docs)
@@ -280,7 +281,7 @@ weaviate.create_schema()
 weaviate.store_chunks(embedded_chunks)
 
 # Query
-query_text = "How does RAG work?"
+query_text = "What is machine learning?"
 query_embedding = embedder.embed_text(query_text)
 results = weaviate.query(query_embedding, limit=3)
 
