@@ -1,14 +1,17 @@
 # retrieve-then-extract-RAG
 
-A RAG (Retrieval-Augmented Generation) pipeline that can do ranged queries using Weaviate vector database and Ollama embeddings.
+A production-ready RAG (Retrieval-Augmented Generation) pipeline with advanced retrieval capabilities using Weaviate vector database and Ollama embeddings.
 
 ## Features
 
 - **Document Fetching**: Fetches Wikipedia articles for RAG testing
 - **Text Extraction**: Cleans and preprocesses text content using LangChain approach
 - **Chunking**: Intelligently splits documents into overlapping chunks
-- **Embeddings**: Generates embeddings using Ollama via LangChain
-- **Vector Storage**: Stores and retrieves documents using Weaviate
+- **Embeddings**: Generates 384-dimensional embeddings using Ollama (snowflake-arctic-embed:33m)
+- **Vector Storage**: Stores and retrieves documents using Weaviate with HNSW index
+- **Hybrid Search**: Combines vector similarity (semantic) with BM25 (keyword) search
+- **Binary Quantization**: Optional 32x memory reduction with minimal accuracy loss
+- **Reranking**: Cross-encoder reranking for improved relevance
 
 ## Pipeline Architecture
 

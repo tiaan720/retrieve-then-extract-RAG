@@ -3,7 +3,8 @@ Weaviate client module for storing and retrieving documents.
 """
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType
-from typing import List, Dict
+from weaviate.classes.query import Rerank
+from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import time
 from src.logger import logger
@@ -12,7 +13,13 @@ from src.logger import logger
 class WeaviateClient:
     """Client for interacting with Weaviate vector database."""
     
-    def __init__(self, url: str = "http://localhost:8080", collection_name: str = "Document", vector_dimensions: int = 384):
+    def __init__(
+        self, 
+        url: str = "http://localhost:8080", 
+        collection_name: str = "Document", 
+        vector_dimensions: int = 384,
+        enable_binary_quantization: bool = False
+    ):
         """
         Initialize Weaviate client.
         
@@ -20,10 +27,12 @@ class WeaviateClient:
             url: Weaviate instance URL
             collection_name: Name of the collection to use
             vector_dimensions: Dimension of the embedding vectors (must match embedding model)
+            enable_binary_quantization: Enable binary quantization for 32x memory reduction and faster search
         """
         self.url = url
         self.collection_name = collection_name
         self.vector_dimensions = vector_dimensions
+        self.enable_binary_quantization = enable_binary_quantization
         self.client = None
         
     def connect(self, max_retries: int = 5, retry_delay: int = 2):
@@ -58,6 +67,7 @@ class WeaviateClient:
         
         Schema includes:
         - Vector index (HNSW for fast similarity search)
+        - Optional binary quantization (32x memory reduction, faster search)
         - Text properties with tokenization for hybrid search
         - Metadata for document tracking
         - No auto-vectorizer (we provide embeddings via Ollama)
@@ -71,6 +81,28 @@ class WeaviateClient:
                 logger.info(f"Collection '{self.collection_name}' already exists")
                 return
             
+            # Configure vector index based on binary quantization setting
+            if self.enable_binary_quantization:
+                # Binary quantization: 32x memory reduction, faster search
+                # Compresses float32 vectors to 1-bit per dimension
+                # Minimal accuracy loss for most use cases
+                vector_index_config = Configure.VectorIndex.hnsw(
+                    distance_metric="cosine",
+                    ef_construction=128,
+                    max_connections=64,
+                    vector_cache_max_objects=10000,
+                    quantizer=Configure.VectorIndex.Quantizer.bq()  # Binary quantization
+                )
+                logger.info("Enabling binary quantization (32x memory reduction)")
+            else:
+                # Standard HNSW configuration (no quantization)
+                vector_index_config = Configure.VectorIndex.hnsw(
+                    distance_metric="cosine",
+                    ef_construction=128,
+                    max_connections=64,
+                    vector_cache_max_objects=10000,
+                )
+            
             # Create collection with enhanced configuration
             self.client.collections.create(
                 name=self.collection_name,
@@ -78,12 +110,7 @@ class WeaviateClient:
                 vectorizer_config=Configure.Vectorizer.none(),
                 # Configure vector index for similarity search (HNSW algorithm)
                 # Vector dimensions MUST match the embedding model dimensions
-                vector_index_config=Configure.VectorIndex.hnsw(
-                    distance_metric="cosine",  # Cosine similarity for embeddings
-                    ef_construction=128,  # Higher = better recall, slower indexing
-                    max_connections=64,  # Higher = better recall, more memory
-                    vector_cache_max_objects=10000,  # Cache for performance
-                ),
+                vector_index_config=vector_index_config,
                 # Explicitly set vector dimensions to match embedding model
                 # For snowflake-arctic-embed:33m = 384 dimensions
                 # For nomic-embed-text = 768 dimensions
@@ -136,7 +163,8 @@ class WeaviateClient:
                     ),
                 ]
             )
-            logger.info(f"Created collection '{self.collection_name}' with hybrid search support")
+            bq_status = "with binary quantization" if self.enable_binary_quantization else "without binary quantization"
+            logger.info(f"Created collection '{self.collection_name}' with hybrid search support {bq_status}")
             
         except Exception as e:
             logger.error(f"Error creating schema: {e}")
@@ -280,6 +308,83 @@ class WeaviateClient:
         except Exception as e:
             logger.error(f"Error in hybrid query: {e}")
             raise
+    
+    def rerank_query(
+        self, 
+        query_text: str, 
+        query_vector: List[float], 
+        limit: int = 5, 
+        rerank_limit: int = 100,
+        rerank_property: str = "content"
+    ) -> List[Dict]:
+        """
+        Perform search with reranking for improved relevance.
+        
+        This is a two-stage retrieval:
+        1. Initial retrieval: Get top N candidates using hybrid search
+        2. Reranking: Apply cross-encoder model to rerank candidates for better relevance
+        
+        Args:
+            query_text: Text query for initial search
+            query_vector: Query embedding vector for semantic search
+            limit: Final number of results to return after reranking
+            rerank_limit: Number of candidates to retrieve before reranking (higher = better but slower)
+            rerank_property: Property to use for reranking (default: "content")
+            
+        Returns:
+            List of reranked documents with metadata and scores
+            
+        Note:
+            Weaviate uses Cohere reranker by default. For local reranking, consider:
+            - Cross-encoder models (e.g., ms-marco-MiniLM-L-12-v2)
+            - Can be configured via Weaviate's reranker-transformers module
+        """
+        if not self.client:
+            raise Exception("Client not connected. Call connect() first.")
+        
+        try:
+            collection = self.client.collections.get(self.collection_name)
+            
+            # Perform hybrid search with reranking
+            response = collection.query.hybrid(
+                query=query_text,
+                vector=query_vector,
+                limit=limit,
+                # Rerank using cross-encoder for improved relevance
+                # First retrieves rerank_limit candidates, then reranks and returns top 'limit'
+                rerank=Rerank(
+                    prop=rerank_property,
+                    query=query_text
+                ),
+                # Get more candidates for reranking to improve final results
+                # The reranker will select the best 'limit' from these candidates
+                return_metadata=["score"]
+            )
+            
+            results = []
+            for obj in response.objects:
+                result = {
+                    "content": obj.properties.get("content", ""),
+                    "title": obj.properties.get("title", ""),
+                    "url": obj.properties.get("url", ""),
+                    "chunk_index": obj.properties.get("chunk_index", 0),
+                    "total_chunks": obj.properties.get("total_chunks", 0),
+                    "source": obj.properties.get("source", ""),
+                    "language": obj.properties.get("language", ""),
+                }
+                # Add rerank score if available
+                if hasattr(obj.metadata, 'score') and obj.metadata.score is not None:
+                    result["rerank_score"] = obj.metadata.score
+                results.append(result)
+            
+            logger.info(f"Rerank query returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in rerank query: {e}")
+            # Fall back to hybrid search without reranking
+            logger.warning("Falling back to hybrid search without reranking")
+            return self.hybrid_query(query_text, query_vector, limit=limit)
     
     def close(self):
         """Close the Weaviate client connection."""

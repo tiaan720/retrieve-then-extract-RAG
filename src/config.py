@@ -11,6 +11,7 @@ class Config(BaseSettings):
     # Weaviate settings
     WEAVIATE_URL: str = Field(default="http://localhost:8080", alias="WEAVIATE_URL")
     COLLECTION_NAME: str = Field(default="Document", alias="COLLECTION_NAME")
+    ENABLE_BINARY_QUANTIZATION: bool = Field(default=False, alias="ENABLE_BINARY_QUANTIZATION")
     
     # Ollama settings
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")

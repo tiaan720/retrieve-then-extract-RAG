@@ -34,7 +34,8 @@ def main():
     weaviate_client = WeaviateClient(
         url=config.WEAVIATE_URL,
         collection_name=config.COLLECTION_NAME,
-        vector_dimensions=config.EMBEDDING_DIMENSIONS
+        vector_dimensions=config.EMBEDDING_DIMENSIONS,
+        enable_binary_quantization=config.ENABLE_BINARY_QUANTIZATION
     )
     
     try:
@@ -85,10 +86,42 @@ def main():
         logger.info("Testing query")
         if embedded_chunks:
             test_embedding = embedded_chunks[0]['embedding']
+            
+            # Test standard vector query
+            logger.info("Standard vector query:")
             results = weaviate_client.query(test_embedding, limit=3)
             logger.info(f"Test query returned {len(results)} results")
             for i, result in enumerate(results, 1):
-                logger.info(f"Result {i}: {result['title']}")
+                logger.info(f"  Result {i}: {result['title']}")
+            
+            # Test hybrid query
+            logger.info("Hybrid query (BM25 + vector):")
+            test_query_text = "What is machine learning?"
+            hybrid_results = weaviate_client.hybrid_query(
+                query_text=test_query_text,
+                query_vector=test_embedding,
+                limit=3,
+                alpha=0.7  # 70% vector, 30% keyword
+            )
+            logger.info(f"Hybrid query returned {len(hybrid_results)} results")
+            for i, result in enumerate(hybrid_results, 1):
+                logger.info(f"  Result {i}: {result['title']}")
+            
+            # Test rerank query
+            logger.info("Reranked query (with cross-encoder):")
+            try:
+                reranked_results = weaviate_client.rerank_query(
+                    query_text=test_query_text,
+                    query_vector=test_embedding,
+                    limit=3,
+                    rerank_limit=10  # Retrieve 10, rerank to top 3
+                )
+                logger.info(f"Rerank query returned {len(reranked_results)} results")
+                for i, result in enumerate(reranked_results, 1):
+                    score_info = f" (score: {result.get('rerank_score', 'N/A')})" if 'rerank_score' in result else ""
+                    logger.info(f"  Result {i}: {result['title']}{score_info}")
+            except Exception as e:
+                logger.warning(f"Reranking not available: {e}")
         
         logger.info("=" * 60)
         logger.info("Pipeline completed successfully!")
