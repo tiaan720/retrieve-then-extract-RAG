@@ -1,6 +1,3 @@
-"""
-Document chunking module to split documents into smaller chunks.
-"""
 from typing import List, Dict
 
 

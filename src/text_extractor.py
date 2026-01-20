@@ -1,8 +1,3 @@
-"""
-Text extraction and preprocessing module.
-Note: Wikipedia already provides clean text, so minimal processing is needed.
-For more complex extraction needs, consider using LangChain's document loaders.
-"""
 from typing import List
 
 

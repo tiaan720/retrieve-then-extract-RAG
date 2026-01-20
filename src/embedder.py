@@ -1,6 +1,3 @@
-"""
-Embedding module using Ollama through LangChain.
-"""
 from typing import List
 from langchain_ollama import OllamaEmbeddings
 import requests
@@ -25,16 +22,21 @@ class EmbeddingGenerator:
         self.base_url = base_url
         self.model = model
         
-        # Validate Ollama connection
         try:
             response = requests.get(f"{base_url}/api/tags", timeout=5)
             response.raise_for_status()
             
             # Check if model is available
             available_models = response.json().get('models', [])
-            model_names = [m.get('name', '').split(':')[0] for m in available_models]
+            model_names = [m.get('name', '') for m in available_models]
             
-            if model not in model_names:
+            model_base = model.split(':')[0]
+            model_found = model in model_names or any(
+                m == model or m.startswith(f"{model_base}:") 
+                for m in model_names
+            )
+            
+            if not model_found:
                 logger.warning(f"Model '{model}' not found in Ollama")
                 logger.warning(f"Available models: {', '.join(model_names) if model_names else 'none'}")
                 logger.warning(f"To install: ollama pull {model}")
@@ -46,7 +48,6 @@ class EmbeddingGenerator:
                 f"Please ensure Ollama is running. Error: {e}"
             )
         
-        # Initialize embeddings
         try:
             self.embeddings = OllamaEmbeddings(
                 base_url=base_url,

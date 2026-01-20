@@ -1,6 +1,3 @@
-"""
-Configuration settings for the embedding pipeline.
-"""
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

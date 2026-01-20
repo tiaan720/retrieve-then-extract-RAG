@@ -1,6 +1,3 @@
-"""
-Document fetcher module to retrieve documentation from Wikipedia.
-"""
 import wikipedia
 from typing import List, Dict
 from src.logger import logger

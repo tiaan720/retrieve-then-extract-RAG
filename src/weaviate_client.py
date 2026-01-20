@@ -1,8 +1,5 @@
-"""
-Weaviate client module for storing and retrieving documents.
-"""
 import weaviate
-from weaviate.classes.config import Configure, Property, DataType
+from weaviate.classes.config import Configure, Property, DataType, VectorDistances, Tokenization
 from weaviate.classes.query import Rerank
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
@@ -85,55 +82,47 @@ class WeaviateClient:
             if self.enable_binary_quantization:
                 # Binary quantization: 32x memory reduction, faster search
                 # Compresses float32 vectors to 1-bit per dimension
-                # Minimal accuracy loss for most use cases
-                vector_index_config = Configure.VectorIndex.hnsw(
-                    distance_metric="cosine",
+                hnsw_config = Configure.VectorIndex.hnsw(
+                    distance_metric=VectorDistances.COSINE,
                     ef_construction=128,
                     max_connections=64,
                     vector_cache_max_objects=10000,
                     quantizer=Configure.VectorIndex.Quantizer.bq()  # Binary quantization
                 )
-                logger.info("Enabling binary quantization (32x memory reduction)")
             else:
                 # Standard HNSW configuration (no quantization)
-                vector_index_config = Configure.VectorIndex.hnsw(
-                    distance_metric="cosine",
+                hnsw_config = Configure.VectorIndex.hnsw(
+                    distance_metric=VectorDistances.COSINE,
                     ef_construction=128,
                     max_connections=64,
                     vector_cache_max_objects=10000,
                 )
             
-            # Create collection with enhanced configuration
             self.client.collections.create(
                 name=self.collection_name,
-                # No vectorizer - we provide embeddings externally via Ollama
-                vectorizer_config=Configure.Vectorizer.none(),
-                # Configure vector index for similarity search (HNSW algorithm)
-                # Vector dimensions MUST match the embedding model dimensions
-                vector_index_config=vector_index_config,
-                # Explicitly set vector dimensions to match embedding model
-                # For snowflake-arctic-embed:33m = 384 dimensions
-                # For nomic-embed-text = 768 dimensions
-                vector_index_type="hnsw",
+                vector_config=Configure.Vectors.self_provided(
+                    vector_index_config=hnsw_config,
+                ),
+                reranker_config=Configure.Reranker.transformers(),
                 properties=[
                     # Main content - tokenized for hybrid search (BM25 + vector)
                     Property(
                         name="content",
                         data_type=DataType.TEXT,
-                        tokenization="word",  # Enable BM25 keyword search
+                        tokenization=Tokenization.WORD,  # Enable BM25 keyword search
                         index_searchable=True,
                     ),
                     # Document metadata
                     Property(
                         name="title",
                         data_type=DataType.TEXT,
-                        tokenization="word",
+                        tokenization=Tokenization.WORD,
                         index_searchable=True,
                     ),
                     Property(
                         name="url",
                         data_type=DataType.TEXT,
-                        index_searchable=False,  # URL doesn't need full-text search
+                        index_searchable=False, 
                     ),
                     # Chunk tracking - chunk_index is this chunk's position (0-based)
                     Property(
@@ -148,7 +137,6 @@ class WeaviateClient:
                         data_type=DataType.INT,
                         index_filterable=True,
                     ),
-                    # Additional metadata for better retrieval
                     Property(
                         name="source",
                         data_type=DataType.TEXT,
@@ -163,8 +151,7 @@ class WeaviateClient:
                     ),
                 ]
             )
-            bq_status = "with binary quantization" if self.enable_binary_quantization else "without binary quantization"
-            logger.info(f"Created collection '{self.collection_name}' with hybrid search support {bq_status}")
+            logger.info(f"Created collection")
             
         except Exception as e:
             logger.error(f"Error creating schema: {e}")
@@ -198,7 +185,6 @@ class WeaviateClient:
             
             logger.info(f"Storing {len(chunks)} chunks in Weaviate")
             
-            # Batch insert for efficiency
             with collection.batch.dynamic() as batch:
                 for chunk in chunks:
                     properties = {
@@ -382,7 +368,6 @@ class WeaviateClient:
             
         except Exception as e:
             logger.error(f"Error in rerank query: {e}")
-            # Fall back to hybrid search without reranking
             logger.warning("Falling back to hybrid search without reranking")
             return self.hybrid_query(query_text, query_vector, limit=limit)
     

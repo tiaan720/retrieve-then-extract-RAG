@@ -123,7 +123,7 @@ python test_components.py
 ### Run the Complete Pipeline
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
 This will:

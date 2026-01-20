@@ -1,6 +1,3 @@
-"""
-Shared logger utility for the pipeline.
-"""
 import logging
 import os
 
@@ -21,7 +18,7 @@ def configure_logging(level: str = "INFO") -> None:
     logging.getLogger("azure.storage").setLevel(logging.WARNING)
 
 
-configure_logging(os.getenv("LOGGING_LEVEL", "WARNING"))
+configure_logging(os.getenv("LOGGING_LEVEL", "INFO"))
 
 # Default logger instance
 logger = logging.getLogger("pipeline")

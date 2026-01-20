@@ -1,6 +1,3 @@
-"""
-Main pipeline orchestration script.
-"""
 import sys
 from src.config import Config
 from src.document_fetcher import DocumentFetcher
@@ -14,11 +11,7 @@ from src.logger import logger
 def main():
     """Run the complete embedding pipeline."""
     
-    logger.info("=" * 60)
-    logger.info("Starting Weaviate Embedding Pipeline")
-    logger.info("=" * 60)
-    
-    # Initialize components
+
     logger.info("Initializing components")
     config = Config()
     fetcher = DocumentFetcher()
@@ -39,7 +32,6 @@ def main():
     )
     
     try:
-        # Fetch documents
         logger.info("Fetching documents from Wikipedia")
         topics = [
             "Artificial intelligence",
@@ -55,46 +47,37 @@ def main():
             logger.warning("No documents fetched. Exiting")
             return
         
-        # Extract and clean text
         logger.info("Extracting and cleaning text")
         cleaned_docs = extractor.extract_from_documents(docs)
         logger.info(f"Cleaned {len(cleaned_docs)} documents")
         
-        # Chunk documents
         logger.info("Chunking documents")
         chunks = chunker.chunk_documents(cleaned_docs)
         logger.info(f"Created {len(chunks)} chunks")
         
-        # Generate embeddings
         logger.info("Generating embeddings")
         embedded_chunks = embedder.embed_chunks(chunks)
         logger.info(f"Generated embeddings for {len(embedded_chunks)} chunks")
         
-        # Connect to Weaviate
         logger.info("Connecting to Weaviate")
         weaviate_client.connect()
         
-        # Create schema
         logger.info("Creating/verifying schema")
         weaviate_client.create_schema()
         
-        # Store chunks
         logger.info("Storing chunks in Weaviate")
         weaviate_client.store_chunks(embedded_chunks)
         
-        # Test query
         logger.info("Testing query")
         if embedded_chunks:
             test_embedding = embedded_chunks[0]['embedding']
             
-            # Test standard vector query
             logger.info("Standard vector query:")
             results = weaviate_client.query(test_embedding, limit=3)
             logger.info(f"Test query returned {len(results)} results")
             for i, result in enumerate(results, 1):
                 logger.info(f"  Result {i}: {result['title']}")
             
-            # Test hybrid query
             logger.info("Hybrid query (BM25 + vector):")
             test_query_text = "What is machine learning?"
             hybrid_results = weaviate_client.hybrid_query(
@@ -107,7 +90,6 @@ def main():
             for i, result in enumerate(hybrid_results, 1):
                 logger.info(f"  Result {i}: {result['title']}")
             
-            # Test rerank query
             logger.info("Reranked query (with cross-encoder):")
             try:
                 reranked_results = weaviate_client.rerank_query(
@@ -123,9 +105,6 @@ def main():
             except Exception as e:
                 logger.warning(f"Reranking not available: {e}")
         
-        logger.info("=" * 60)
-        logger.info("Pipeline completed successfully!")
-        logger.info("=" * 60)
         
     except Exception as e:
         logger.error(f"Error in pipeline: {e}")
