@@ -1,10 +1,3 @@
-"""
-Collection manager for handling multiple Weaviate collections.
-
-Creates and manages different collection configurations for comparing
-retrieval strategies with different index settings.
-"""
-
 from typing import List, Dict, Optional
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType, VectorDistances, Tokenization

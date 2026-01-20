@@ -1,17 +1,3 @@
-"""
-Comparison script for evaluating different retrieval strategies.
-
-This script:
-1. Creates multiple Weaviate collections with different configurations
-2. Populates them with the same document chunks
-3. Benchmarks all retrieval strategies
-4. Compares speed and accuracy
-5. Generates a comparison report
-
-Usage:
-    python compare_strategies.py
-"""
-
 import sys
 from typing import List
 from src.config import Config
