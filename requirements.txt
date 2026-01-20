@@ -1,0 +1,14 @@
+# Core dependencies
+weaviate-client==4.9.3
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-ollama==0.2.0
+
+# Document processing
+requests==2.32.3
+beautifulsoup4==4.12.3
+markdown==3.7
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.10.5
