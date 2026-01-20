@@ -14,7 +14,8 @@ class Config(BaseSettings):
     
     # Ollama settings
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
-    OLLAMA_MODEL: str = Field(default="nomic-embed-text", alias="OLLAMA_MODEL")
+    OLLAMA_MODEL: str = Field(default="snowflake-arctic-embed:33m", alias="OLLAMA_MODEL")
+    EMBEDDING_DIMENSIONS: int = Field(default=384, alias="EMBEDDING_DIMENSIONS")
     
     # Chunking settings
     CHUNK_SIZE: int = Field(default=500, alias="CHUNK_SIZE")

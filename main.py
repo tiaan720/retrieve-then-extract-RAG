@@ -33,7 +33,8 @@ def main():
     )
     weaviate_client = WeaviateClient(
         url=config.WEAVIATE_URL,
-        collection_name=config.COLLECTION_NAME
+        collection_name=config.COLLECTION_NAME,
+        vector_dimensions=config.EMBEDDING_DIMENSIONS
     )
     
     try:

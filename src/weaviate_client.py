@@ -12,16 +12,18 @@ from src.logger import logger
 class WeaviateClient:
     """Client for interacting with Weaviate vector database."""
     
-    def __init__(self, url: str = "http://localhost:8080", collection_name: str = "Document"):
+    def __init__(self, url: str = "http://localhost:8080", collection_name: str = "Document", vector_dimensions: int = 384):
         """
         Initialize Weaviate client.
         
         Args:
             url: Weaviate instance URL
             collection_name: Name of the collection to use
+            vector_dimensions: Dimension of the embedding vectors (must match embedding model)
         """
         self.url = url
         self.collection_name = collection_name
+        self.vector_dimensions = vector_dimensions
         self.client = None
         
     def connect(self, max_retries: int = 5, retry_delay: int = 2):
@@ -75,11 +77,17 @@ class WeaviateClient:
                 # No vectorizer - we provide embeddings externally via Ollama
                 vectorizer_config=Configure.Vectorizer.none(),
                 # Configure vector index for similarity search (HNSW algorithm)
+                # Vector dimensions MUST match the embedding model dimensions
                 vector_index_config=Configure.VectorIndex.hnsw(
                     distance_metric="cosine",  # Cosine similarity for embeddings
                     ef_construction=128,  # Higher = better recall, slower indexing
                     max_connections=64,  # Higher = better recall, more memory
+                    vector_cache_max_objects=10000,  # Cache for performance
                 ),
+                # Explicitly set vector dimensions to match embedding model
+                # For snowflake-arctic-embed:33m = 384 dimensions
+                # For nomic-embed-text = 768 dimensions
+                vector_index_type="hnsw",
                 properties=[
                     # Main content - tokenized for hybrid search (BM25 + vector)
                     Property(

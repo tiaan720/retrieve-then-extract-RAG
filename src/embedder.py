@@ -10,7 +10,7 @@ from src.logger import logger
 class EmbeddingGenerator:
     """Generates embeddings using Ollama via LangChain."""
     
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "nomic-embed-text"):
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "snowflake-arctic-embed:33m"):
         """
         Initialize the embedding generator.
         

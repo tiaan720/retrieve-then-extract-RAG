@@ -35,7 +35,7 @@ The pipeline follows a sequential flow:
            ▼
 ┌─────────────────────┐
 │  Embedding Gen.     │  Generate vectors via Ollama
-│  (embedder)         │  using nomic-embed-text
+│  (embedder)         │  using snowflake-arctic-embed:33m (384 dims)
 └──────────┬──────────┘
            │
            ▼
@@ -83,7 +83,7 @@ pip install -r requirements.txt
 ollama serve
 
 # In another terminal, pull the embedding model
-ollama pull nomic-embed-text
+ollama pull snowflake-arctic-embed:33m
 ```
 
 ### 3. Start Weaviate with Docker

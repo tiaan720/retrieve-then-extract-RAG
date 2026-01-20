@@ -5,7 +5,7 @@
 
 This is a production-ready Retrieval-Augmented Generation (RAG) pipeline using:
 - **Weaviate**: Vector database for semantic search
-- **Ollama**: Local LLM for embeddings (nomic-embed-text model)
+- **Ollama**: Local LLM for embeddings (snowflake-arctic-embed:33m model, 384 dimensions)
 - **Wikipedia**: Document source for testing
 - **LangChain**: Framework for LLM applications
 
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 ollama serve
 
 # In another terminal, pull the embedding model
-ollama pull nomic-embed-text
+ollama pull snowflake-arctic-embed:33m
 ```
 
 3. **Start Weaviate with Docker**:
@@ -80,7 +80,8 @@ cp .env.example .env
 # Edit .env to customize:
 # - WEAVIATE_URL (default: http://localhost:8080)
 # - OLLAMA_BASE_URL (default: http://localhost:11434)
-# - OLLAMA_MODEL (default: nomic-embed-text)
+# - OLLAMA_MODEL (default: snowflake-arctic-embed:33m)
+# - EMBEDDING_DIMENSIONS (default: 384)
 # - CHUNK_SIZE (default: 500)
 # - CHUNK_OVERLAP (default: 50)
 # - LOGGING_LEVEL (default: WARNING)
