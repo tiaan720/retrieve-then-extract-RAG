@@ -4,6 +4,7 @@ Embedding module using Ollama through LangChain.
 from typing import List
 from langchain_ollama import OllamaEmbeddings
 import requests
+from src.logger import logger
 
 
 class EmbeddingGenerator:
@@ -34,10 +35,10 @@ class EmbeddingGenerator:
             model_names = [m.get('name', '').split(':')[0] for m in available_models]
             
             if model not in model_names:
-                print(f"⚠️  Warning: Model '{model}' not found in Ollama.")
-                print(f"   Available models: {', '.join(model_names) if model_names else 'none'}")
-                print(f"   To install: ollama pull {model}")
-                print(f"   Proceeding anyway - model will be pulled on first use.")
+                logger.warning(f"Model '{model}' not found in Ollama")
+                logger.warning(f"Available models: {', '.join(model_names) if model_names else 'none'}")
+                logger.warning(f"To install: ollama pull {model}")
+                logger.warning("Proceeding anyway - model will be pulled on first use")
                 
         except requests.exceptions.RequestException as e:
             raise ConnectionError(
@@ -51,7 +52,7 @@ class EmbeddingGenerator:
                 base_url=base_url,
                 model=model
             )
-            print(f"✓ Initialized Ollama embeddings with model: {model}")
+            logger.info(f"Initialized Ollama embeddings with model: {model}")
         except Exception as e:
             raise ValueError(f"Failed to initialize OllamaEmbeddings: {e}")
     
@@ -89,7 +90,7 @@ class EmbeddingGenerator:
         Returns:
             List of chunk dictionaries with added 'embedding' key
         """
-        print(f"Generating embeddings for {len(chunks)} chunks...")
+        logger.info(f"Generating embeddings for {len(chunks)} chunks")
         
         # Extract text content
         texts = [chunk['content'] for chunk in chunks]
@@ -104,5 +105,6 @@ class EmbeddingGenerator:
             chunk_with_embedding['embedding'] = embedding
             embedded_chunks.append(chunk_with_embedding)
         
-        print(f"Successfully generated {len(embedded_chunks)} embeddings")
+        logger.info(f"Successfully generated {len(embedded_chunks)} embeddings")
         return embedded_chunks
+

@@ -6,6 +6,7 @@ from weaviate.classes.config import Configure, Property, DataType
 from typing import List, Dict
 from urllib.parse import urlparse
 import time
+from src.logger import logger
 
 
 class WeaviateClient:
@@ -39,12 +40,12 @@ class WeaviateClient:
                 port = parsed.port or 8080
                 
                 self.client = weaviate.connect_to_local(host=host, port=port)
-                print(f"Connected to Weaviate at {self.url}")
+                logger.info(f"Connected to Weaviate at {self.url}")
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
-                    print(f"Connection attempt {attempt + 1} failed: {e}")
-                    print(f"Retrying in {retry_delay} seconds...")
+                    logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+                    logger.info(f"Retrying in {retry_delay} seconds")
                     time.sleep(retry_delay)
                 else:
                     raise Exception(f"Failed to connect to Weaviate after {max_retries} attempts: {e}")
@@ -57,7 +58,7 @@ class WeaviateClient:
         try:
             # Check if collection already exists
             if self.client.collections.exists(self.collection_name):
-                print(f"Collection '{self.collection_name}' already exists")
+                logger.info(f"Collection '{self.collection_name}' already exists")
                 return
             
             # Create collection with properties
@@ -72,10 +73,10 @@ class WeaviateClient:
                     Property(name="total_chunks", data_type=DataType.INT),
                 ]
             )
-            print(f"Created collection '{self.collection_name}'")
+            logger.info(f"Created collection '{self.collection_name}'")
             
         except Exception as e:
-            print(f"Error creating schema: {e}")
+            logger.error(f"Error creating schema: {e}")
             raise
     
     def delete_collection(self):
@@ -86,9 +87,9 @@ class WeaviateClient:
         try:
             if self.client.collections.exists(self.collection_name):
                 self.client.collections.delete(self.collection_name)
-                print(f"Deleted collection '{self.collection_name}'")
+                logger.info(f"Deleted collection '{self.collection_name}'")
         except Exception as e:
-            print(f"Error deleting collection: {e}")
+            logger.error(f"Error deleting collection: {e}")
             raise
     
     def store_chunks(self, chunks: List[Dict]):
@@ -104,7 +105,7 @@ class WeaviateClient:
         try:
             collection = self.client.collections.get(self.collection_name)
             
-            print(f"Storing {len(chunks)} chunks in Weaviate...")
+            logger.info(f"Storing {len(chunks)} chunks in Weaviate")
             
             # Batch insert for efficiency
             with collection.batch.dynamic() as batch:
@@ -124,10 +125,10 @@ class WeaviateClient:
                         vector=vector
                     )
             
-            print(f"Successfully stored {len(chunks)} chunks")
+            logger.info(f"Successfully stored {len(chunks)} chunks")
             
         except Exception as e:
-            print(f"Error storing chunks: {e}")
+            logger.error(f"Error storing chunks: {e}")
             raise
     
     def query(self, query_vector: List[float], limit: int = 5) -> List[Dict]:
@@ -165,11 +166,11 @@ class WeaviateClient:
             return results
             
         except Exception as e:
-            print(f"Error querying: {e}")
+            logger.error(f"Error querying: {e}")
             raise
     
     def close(self):
         """Close the Weaviate client connection."""
         if self.client:
             self.client.close()
-            print("Closed Weaviate connection")
+            logger.info("Closed Weaviate connection")

@@ -22,22 +22,11 @@ class DocumentChunker:
         """
         Split text into overlapping chunks with sentence boundary detection.
         
-        The algorithm works as follows:
-        1. Validates that chunk_overlap < chunk_size to prevent infinite loops
-        2. Creates chunks of size chunk_size starting from position 0
-        3. For chunks that don't end at text boundary, attempts to find a natural
-           break point (sentence ending with '.' or newline character)
-        4. Only adjusts chunk boundary if a natural break is found in the second
-           half of the chunk (to avoid creating very small chunks)
-        5. Moves to next chunk with overlap of chunk_overlap characters
-        6. Ensures progress by incrementing position if overlap would cause the
-           same starting position, preventing infinite loops
-        
         Args:
             text: Text to chunk
             
         Returns:
-            List of text chunks (whitespace-stripped)
+            List of text chunks
             
         Raises:
             ValueError: If chunk_overlap >= chunk_size

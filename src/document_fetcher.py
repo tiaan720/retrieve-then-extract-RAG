@@ -3,6 +3,7 @@ Document fetcher module to retrieve documentation from Wikipedia.
 """
 import wikipedia
 from typing import List, Dict
+from src.logger import logger
 
 
 class DocumentFetcher:
@@ -32,12 +33,12 @@ class DocumentFetcher:
         
         for topic in topics[:max_docs]:
             try:
-                print(f"Fetching Wikipedia article: {topic}")
+                logger.info(f"Fetching Wikipedia article: {topic}")
                 
                 # Search for the topic and get the best match
                 search_results = wikipedia.search(topic, results=1)
                 if not search_results:
-                    print(f"  No results found for: {topic}")
+                    logger.warning(f"No results found for: {topic}")
                     continue
                 
                 page_title = search_results[0]
@@ -48,11 +49,10 @@ class DocumentFetcher:
                     'url': page.url,
                     'content': page.content
                 })
-                print(f"  Successfully fetched: {page.title}")
+                logger.info(f"Successfully fetched: {page.title}")
                 
             except wikipedia.exceptions.DisambiguationError as e:
-                # If topic is ambiguous, take the first option
-                print(f"  Disambiguation for '{topic}', using: {e.options[0]}")
+                logger.warning(f"Disambiguation for '{topic}', using: {e.options[0]}")
                 try:
                     page = wikipedia.page(e.options[0], auto_suggest=False)
                     docs.append({
@@ -60,15 +60,15 @@ class DocumentFetcher:
                         'url': page.url,
                         'content': page.content
                     })
-                    print(f"  Successfully fetched: {page.title}")
+                    logger.info(f"Successfully fetched: {page.title}")
                 except Exception as inner_e:
-                    print(f"  Error fetching disambiguation option: {inner_e}")
+                    logger.error(f"Error fetching disambiguation option: {inner_e}")
                     
             except wikipedia.exceptions.PageError:
-                print(f"  Page not found: {topic}")
+                logger.warning(f"Page not found: {topic}")
                 
             except Exception as e:
-                print(f"  Error fetching {topic}: {e}")
+                logger.error(f"Error fetching {topic}: {e}")
                 continue
         
         return docs
@@ -92,19 +92,20 @@ class DocumentFetcher:
                 
             for title in random_titles:
                 try:
-                    print(f"Fetching random article: {title}")
+                    logger.info(f"Fetching random article: {title}")
                     page = wikipedia.page(title, auto_suggest=False)
                     docs.append({
                         'title': page.title,
                         'url': page.url,
                         'content': page.content
                     })
-                    print(f"  Successfully fetched: {page.title}")
+                    logger.info(f"Successfully fetched: {page.title}")
                 except Exception as e:
-                    print(f"  Error fetching {title}: {e}")
+                    logger.error(f"Error fetching {title}: {e}")
                     continue
                     
         except Exception as e:
-            print(f"Error fetching random articles: {e}")
+            logger.error(f"Error fetching random articles: {e}")
         
         return docs
+
