@@ -1,5 +1,4 @@
 import sys
-from typing import List
 from src.config import Config
 from src.document_fetcher import DocumentFetcher
 from src.text_extractor import TextExtractor
@@ -14,34 +13,9 @@ from src.retrieval_strategies import (
     BinaryInt8Staged
 )
 from src.evaluator import RetrievalEvaluator
+from src.ground_truth import get_ground_truth_queries, get_ground_truth_map
 from src.logger import logger
 import weaviate
-
-
-def create_test_queries() -> List[str]:
-    """Create test queries for benchmarking."""
-    return [
-        "What is artificial intelligence?",
-        "How does machine learning work?",
-        "Explain deep learning neural networks",
-        "What are natural language processing applications?",
-        "Difference between supervised and unsupervised learning",
-        "What is a convolutional neural network?",
-        "How do transformers work in NLP?",
-        "What is reinforcement learning?",
-        "Explain backpropagation in neural networks",
-        "What are recurrent neural networks?",
-        "How does transfer learning work?",
-        "What is computer vision?",
-        "Explain gradient descent optimization",
-        "What are generative adversarial networks?",
-        "How does BERT model work?",
-        "What is semantic search?",
-        "Explain word embeddings and word2vec",
-        "What are attention mechanisms?",
-        "How does GPT work?",
-        "What is few-shot learning?",
-    ]
 
 
 def main():
@@ -65,9 +39,8 @@ def main():
         model=config.OLLAMA_MODEL
     )
     
-    # Connect to Weaviate
+
     logger.info("\n2. Connecting to Weaviate...")
-    # Use WeaviateClient's connection logic
     from src.weaviate_client import WeaviateClient
     temp_client = WeaviateClient(
         url=config.WEAVIATE_URL,
@@ -76,20 +49,17 @@ def main():
     )
     temp_client.connect()
     client = temp_client.client
-    logger.info(f"✓ Connected to Weaviate at {config.WEAVIATE_URL}")
+    logger.info(f"Connected to Weaviate at {config.WEAVIATE_URL}")
     
     try:
-        # Initialize collection manager
         collection_manager = CollectionManager(
             client=client,
             vector_dimensions=config.EMBEDDING_DIMENSIONS
         )
-        
-        # Create all collections
+    
         logger.info("\n3. Creating collections for each strategy...")
         collection_manager.create_all_collections()
-        
-        # Fetch and process documents
+ 
         logger.info("\n4. Fetching and processing documents...")
         topics = [
             "Artificial intelligence",
@@ -102,18 +72,18 @@ def main():
             "Transformer (machine learning)",
         ]
         docs = fetcher.fetch_wikipedia_articles(topics, max_docs=10)
-        logger.info(f"✓ Fetched {len(docs)} documents")
+        logger.info(f"Fetched {len(docs)} documents")
         
         cleaned_docs = extractor.extract_from_documents(docs)
-        logger.info(f"✓ Cleaned {len(cleaned_docs)} documents")
+        logger.info(f"Cleaned {len(cleaned_docs)} documents")
         
         chunks = chunker.chunk_documents(cleaned_docs)
-        logger.info(f"✓ Created {len(chunks)} chunks")
+        logger.info(f"Created {len(chunks)} chunks")
         
         # Generate embeddings
         logger.info("\n5. Generating embeddings...")
         embedded_chunks = embedder.embed_chunks(chunks)
-        logger.info(f"✓ Generated {len(embedded_chunks)} embeddings")
+        logger.info(f"Generated {len(embedded_chunks)} embeddings")
         
         # Store chunks in all collections
         logger.info("\n6. Storing chunks in all collections...")
@@ -128,17 +98,17 @@ def main():
             CrossEncoderRerank(collection_manager.get_collection("CrossEncoderRerank"), rerank_multiplier=4),
             BinaryInt8Staged(collection_manager.get_collection("BinaryInt8Staged"), rescore_multiplier=4),
         ]
-        logger.info(f"✓ Initialized {len(strategies)} strategies")
+        logger.info(f"Initialized {len(strategies)} strategies")
         
-        # Create test queries
-        logger.info("\n8. Creating test queries...")
-        test_queries = create_test_queries()
-        logger.info(f"✓ Created {len(test_queries)} test queries")
+        # Create test queries from ground truth
+        logger.info("\n8. Loading ground truth queries...")
+        test_queries = get_ground_truth_queries()
+        ground_truth = get_ground_truth_map()
+        logger.info(f"Loaded {len(test_queries)} queries with ground truth annotations")
         
         # Benchmark all strategies
         logger.info("\n9. Benchmarking strategies...")
-        logger.info("   (This may take a few minutes...)")
-        evaluator = RetrievalEvaluator(embedder)
+        evaluator = RetrievalEvaluator(embedder, ground_truth=ground_truth)
         
         evaluator.benchmark_all_strategies(
             strategies=strategies,
@@ -173,9 +143,8 @@ def main():
         logger.info("=" * 80)
         logger.info("\nKey Findings:")
         logger.info("  - Check benchmark_results.json for detailed metrics")
-        logger.info("  - BinaryInt8Staged implements the article's approach")
-        logger.info("  - All strategies tested on identical data")
-        logger.info("  - Same embedding model used for fair comparison")
+        logger.info("  - Recall measures: did we find the correct document?")
+        logger.info("  - Ground truth based on actual Wikipedia content")
         
     except Exception as e:
         logger.error(f"Error during comparison: {e}")
@@ -186,7 +155,7 @@ def main():
     finally:
         logger.info("\nClosing connections...")
         client.close()
-        logger.info("✓ Done")
+        logger.info("Done")
 
 
 if __name__ == "__main__":

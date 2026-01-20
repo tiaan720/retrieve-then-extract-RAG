@@ -24,40 +24,19 @@ class StrategyBenchmark:
 
 
 class RetrievalEvaluator:
-    """Evaluates and compares retrieval strategies."""
+    """Evaluates and compares retrieval strategies using real ground truth."""
     
-    def __init__(self, embedder):
+    def __init__(self, embedder, ground_truth: Optional[Dict[str, List[str]]] = None):
         """
         Initialize evaluator.
         
         Args:
             embedder: Embedding generator for queries
+            ground_truth: Dict mapping query -> list of expected document titles
         """
         self.embedder = embedder
         self.results = {}
-        self.baseline_results = {}  # Store baseline (StandardHNSW) results for accuracy comparison
-    
-    def _get_baseline_results(
-        self,
-        baseline_strategy: RetrievalStrategy,
-        queries: List[str],
-        limit: int = 10
-    ) -> Dict[str, List[str]]:
-        """
-        Get baseline results to use as ground truth.
-        
-        Uses StandardHNSW (fp32) results as the "correct" answers.
-        Other strategies are measured by how well they match these results.
-        """
-        baseline = {}
-        
-        for query in queries:
-            query_vec = self.embedder.embed_text(query)
-            results, _ = baseline_strategy.search(query_vec, query, limit=limit)
-            # Use content hash as identifier (title might not be unique)
-            baseline[query] = [r["content"][:100] for r in results]  # First 100 chars as ID
-        
-        return baseline
+        self.ground_truth = ground_truth or {}
     
     def benchmark_strategy(
         self,
@@ -89,37 +68,38 @@ class RetrievalEvaluator:
         # Collect metrics
         latencies = []
         all_results = {}
-        for i, query in enumerate(queries):
+        
+        for query in queries:
             # Measure total time (embedding + search)
             start_time = time.time()
             query_vec = self.embedder.embed_text(query)
-            results, _ = strategy.search(query_vec, query, limit=10)  # Get 10 for recall@10
+            results, _ = strategy.search(query_vec, query, limit=10)
             total_time = (time.time() - start_time) * 1000
             
             latencies.append(total_time)
-            all_results[query] = [r["content"][:100] for r in results]
+            # Store titles for ground truth comparison
+            all_results[query] = [r["title"] for r in results]
         
-        # Calculate accuracy vs baseline
+        # Calculate accuracy using real ground truth
         recall_at_5 = None
         recall_at_10 = None
         
-        if self.baseline_results:
+        if self.ground_truth:
             recall_5_scores = []
             recall_10_scores = []
             
             for query in queries:
-                if query in self.baseline_results and query in all_results:
-                    baseline_set_5 = set(self.baseline_results[query][:5])
-                    baseline_set_10 = set(self.baseline_results[query][:10])
+                if query in self.ground_truth and query in all_results:
+                    expected_titles = set(self.ground_truth[query])
                     retrieved_5 = set(all_results[query][:5])
                     retrieved_10 = set(all_results[query][:10])
                     
-                    # Recall = how many baseline results did we find?
-                    r5 = len(baseline_set_5 & retrieved_5) / len(baseline_set_5) if baseline_set_5 else 1.0
-                    r10 = len(baseline_set_10 & retrieved_10) / len(baseline_set_10) if baseline_set_10 else 1.0
+                    # Recall = did we find ANY of the expected documents in results?
+                    found_in_5 = 1.0 if expected_titles & retrieved_5 else 0.0
+                    found_in_10 = 1.0 if expected_titles & retrieved_10 else 0.0
                     
-                    recall_5_scores.append(r5)
-                    recall_10_scores.append(r10)
+                    recall_5_scores.append(found_in_5)
+                    recall_10_scores.append(found_in_10)
             
             if recall_5_scores:
                 recall_at_5 = statistics.mean(recall_5_scores)
@@ -148,9 +128,7 @@ class RetrievalEvaluator:
         warmup_queries: int = 2
     ) -> Dict[str, StrategyBenchmark]:
         """
-        Benchmark multiple strategies.
-        
-        Uses StandardHNSW as baseline for accuracy measurement.
+        Benchmark multiple strategies using real ground truth.
         
         Args:
             strategies: List of strategies to benchmark
@@ -163,17 +141,14 @@ class RetrievalEvaluator:
         """
         logger.info(f"Benchmarking {len(strategies)} strategies on {len(queries)} queries")
         
-        # Find and benchmark baseline first (StandardHNSW)
-        baseline_strategy = next((s for s in strategies if s.name == "StandardHNSW"), None)
+        if self.ground_truth:
+            logger.info(f"Using ground truth with {len(self.ground_truth)} annotated queries")
+        else:
+            logger.warning("No ground truth provided - accuracy metrics will be N/A")
         
-        if baseline_strategy:
-            self.benchmark_strategy(baseline_strategy, queries, limit, warmup_queries)
-            self.baseline_results = self._get_baseline_results(baseline_strategy, queries, limit=10)
-        
-        # Benchmark all other strategies
+        # Benchmark all strategies
         for strategy in strategies:
-            if strategy.name != "StandardHNSW":
-                self.benchmark_strategy(strategy, queries, limit, warmup_queries)
+            self.benchmark_strategy(strategy, queries, limit, warmup_queries)
         
         return self.results
     
@@ -194,8 +169,8 @@ class RetrievalEvaluator:
         sorted_results = sorted(self.results.items(), key=lambda x: x[1].avg_latency_ms)
         
         for name, benchmark in sorted_results:
-            recall5_str = f"{benchmark.recall_at_5:.1%}" if benchmark.recall_at_5 is not None else "baseline"
-            recall10_str = f"{benchmark.recall_at_10:.1%}" if benchmark.recall_at_10 is not None else "baseline"
+            recall5_str = f"{benchmark.recall_at_5:.1%}" if benchmark.recall_at_5 is not None else "N/A"
+            recall10_str = f"{benchmark.recall_at_10:.1%}" if benchmark.recall_at_10 is not None else "N/A"
             logger.info(f"{name:<25} {benchmark.avg_latency_ms:<15.2f} {recall5_str:<12} {recall10_str:<12}")
         
         logger.info("=" * 70)

@@ -180,7 +180,7 @@ class CollectionManager:
             ]
         )
         
-        logger.info(f"✓ Created collection: {config.name}")
+        logger.info(f"Created collection: {config.name}")
         self.collections[config.name] = collection
     
     def create_all_collections(self) -> None:
@@ -243,7 +243,7 @@ class CollectionManager:
                     vector=vector
                 )
         
-        logger.info(f"✓ Stored {len(chunks)} chunks in {collection_name}")
+        logger.info(f"Stored {len(chunks)} chunks in {collection_name}")
     
     def store_chunks_in_all_collections(self, chunks: List[Dict]) -> None:
         """
@@ -257,7 +257,7 @@ class CollectionManager:
         for strategy_name, config in self.CONFIGS.items():
             self.store_chunks_in_collection(config.name, chunks)
         
-        logger.info("✓ All collections populated with identical data")
+        logger.info("All collections populated with identical data")
     
     def delete_collection(self, strategy_name: str) -> None:
         """
