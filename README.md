@@ -16,15 +16,31 @@ A RAG (Retrieval-Augmented Generation) pipeline that can do ranged queries using
 - Docker and Docker Compose
 - Ollama installed locally ([Install Ollama](https://ollama.ai/))
 
-## Setup
+## Quick Start
 
-### 1. Install Dependencies
+### Option 1: Automated Setup (Recommended)
+
+Run the quick start script (Linux/macOS):
+
+```bash
+./quickstart.sh
+```
+
+This script will:
+- Install Python dependencies
+- Pull the Ollama embedding model
+- Start Weaviate with Docker
+- Run a demonstration
+
+### Option 2: Manual Setup
+
+#### 1. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Start Ollama and Pull the Embedding Model
+#### 2. Start Ollama and Pull the Embedding Model
 
 ```bash
 # Start Ollama (if not already running)
@@ -34,7 +50,7 @@ ollama serve
 ollama pull nomic-embed-text
 ```
 
-### 3. Start Weaviate with Docker
+#### 3. Start Weaviate with Docker
 
 ```bash
 docker-compose up -d
@@ -42,7 +58,7 @@ docker-compose up -d
 
 This will start a Weaviate instance on `http://localhost:8080`.
 
-### 4. Configure Environment (Optional)
+#### 4. Configure Environment (Optional)
 
 Copy the example environment file and adjust settings if needed:
 
@@ -56,6 +72,24 @@ Edit `.env` to configure:
 - Chunk size and overlap
 
 ## Usage
+
+### Try the Demo First
+
+Before running the full pipeline, try the demo to understand the workflow:
+
+```bash
+python demo.py
+```
+
+This demonstrates the pipeline steps without requiring Ollama or Weaviate to be running.
+
+### Run Component Tests
+
+Verify the core components are working:
+
+```bash
+python test_components.py
+```
 
 ### Run the Complete Pipeline
 
@@ -119,8 +153,12 @@ weaviate_client.close()
 .
 ├── docker-compose.yml          # Weaviate Docker configuration
 ├── requirements.txt            # Python dependencies
+├── setup.py                    # Package setup configuration
 ├── .env.example               # Example environment configuration
+├── quickstart.sh              # Automated setup script
 ├── main.py                    # Main pipeline script
+├── demo.py                    # Demo without external services
+├── test_components.py         # Component tests
 ├── example_usage.py           # Example usage with custom URLs
 └── src/
     ├── config.py              # Configuration settings
