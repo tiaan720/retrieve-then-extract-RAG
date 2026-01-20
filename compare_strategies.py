@@ -81,11 +81,15 @@ def main():
     
     # Connect to Weaviate
     logger.info("\n2. Connecting to Weaviate...")
-    from urllib.parse import urlparse
-    parsed = urlparse(config.WEAVIATE_URL)
-    host = parsed.hostname or "localhost"
-    port = parsed.port or 8080
-    client = weaviate.connect_to_local(host=host, port=port)
+    # Use WeaviateClient's connection logic
+    from src.weaviate_client import WeaviateClient
+    temp_client = WeaviateClient(
+        url=config.WEAVIATE_URL,
+        collection_name="temp",
+        vector_dimensions=config.EMBEDDING_DIMENSIONS
+    )
+    temp_client.connect()
+    client = temp_client.client
     logger.info(f"✓ Connected to Weaviate at {config.WEAVIATE_URL}")
     
     try:

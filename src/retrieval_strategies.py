@@ -204,16 +204,18 @@ class HybridSearch(RetrievalStrategy):
 class CrossEncoderRerank(RetrievalStrategy):
     """Two-stage retrieval with cross-encoder reranking."""
     
-    def __init__(self, collection, rerank_multiplier: int = 4):
+    def __init__(self, collection, rerank_multiplier: int = 4, alpha: float = 0.7):
         """
         Initialize reranking strategy.
         
         Args:
             collection: Weaviate collection
             rerank_multiplier: Retrieve N×limit candidates for reranking
+            alpha: Balance between vector (1.0) and keyword (0.0) search
         """
         super().__init__("CrossEncoderRerank", collection)
         self.rerank_multiplier = rerank_multiplier
+        self.alpha = alpha
     
     def search(
         self,
@@ -224,15 +226,16 @@ class CrossEncoderRerank(RetrievalStrategy):
         """Two-stage retrieval with cross-encoder reranking."""
         search_start = time.time()
         
-        # Stage 1: Retrieve candidates
-        candidate_limit = limit * self.rerank_multiplier
+        # Stage 1: Retrieve more candidates for better reranking
+        # Note: Weaviate reranker works on the returned results
+        # So we don't need separate candidate retrieval
         
         # Use hybrid search with reranking
         response = self.collection.query.hybrid(
             query=query_text,
             vector=query_vector,
             limit=limit,
-            alpha=0.7,
+            alpha=self.alpha,
             # Rerank using cross-encoder
             rerank=Rerank(
                 prop="content",

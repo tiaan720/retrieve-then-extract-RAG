@@ -119,12 +119,16 @@ class RetrievalEvaluator:
         latencies_sorted = sorted(latencies)
         n = len(latencies_sorted)
         
+        # Calculate correct percentile indices
+        p95_idx = min(int((n - 1) * 0.95), n - 1) if n > 0 else 0
+        p99_idx = min(int((n - 1) * 0.99), n - 1) if n > 0 else 0
+        
         benchmark = StrategyBenchmark(
             strategy_name=strategy.name,
             avg_latency_ms=statistics.mean(latencies),
             median_latency_ms=statistics.median(latencies),
-            p95_latency_ms=latencies_sorted[int(n * 0.95)] if n > 0 else 0,
-            p99_latency_ms=latencies_sorted[int(n * 0.99)] if n > 0 else 0,
+            p95_latency_ms=latencies_sorted[p95_idx] if n > 0 else 0,
+            p99_latency_ms=latencies_sorted[p99_idx] if n > 0 else 0,
             min_latency_ms=min(latencies),
             max_latency_ms=max(latencies),
             avg_embedding_time_ms=statistics.mean(embedding_times),
