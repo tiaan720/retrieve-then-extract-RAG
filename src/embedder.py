@@ -3,6 +3,7 @@ Embedding module using Ollama through LangChain.
 """
 from typing import List
 from langchain_ollama import OllamaEmbeddings
+import requests
 
 
 class EmbeddingGenerator:
@@ -15,12 +16,44 @@ class EmbeddingGenerator:
         Args:
             base_url: Base URL for Ollama API
             model: Name of the embedding model to use
+            
+        Raises:
+            ConnectionError: If Ollama service is not reachable
+            ValueError: If the specified model is not available
         """
-        self.embeddings = OllamaEmbeddings(
-            base_url=base_url,
-            model=model
-        )
-        print(f"Initialized Ollama embeddings with model: {model}")
+        self.base_url = base_url
+        self.model = model
+        
+        # Validate Ollama connection
+        try:
+            response = requests.get(f"{base_url}/api/tags", timeout=5)
+            response.raise_for_status()
+            
+            # Check if model is available
+            available_models = response.json().get('models', [])
+            model_names = [m.get('name', '').split(':')[0] for m in available_models]
+            
+            if model not in model_names:
+                print(f"⚠️  Warning: Model '{model}' not found in Ollama.")
+                print(f"   Available models: {', '.join(model_names) if model_names else 'none'}")
+                print(f"   To install: ollama pull {model}")
+                print(f"   Proceeding anyway - model will be pulled on first use.")
+                
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(
+                f"Failed to connect to Ollama at {base_url}. "
+                f"Please ensure Ollama is running. Error: {e}"
+            )
+        
+        # Initialize embeddings
+        try:
+            self.embeddings = OllamaEmbeddings(
+                base_url=base_url,
+                model=model
+            )
+            print(f"✓ Initialized Ollama embeddings with model: {model}")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize OllamaEmbeddings: {e}")
     
     def embed_text(self, text: str) -> List[float]:
         """

@@ -33,11 +33,12 @@ class WeaviateClient:
         """
         for attempt in range(max_retries):
             try:
-                # Parse URL to extract host
+                # Parse URL to extract host and port
                 parsed = urlparse(self.url)
                 host = parsed.hostname or "localhost"
+                port = parsed.port or 8080
                 
-                self.client = weaviate.connect_to_local(host=host)
+                self.client = weaviate.connect_to_local(host=host, port=port)
                 print(f"Connected to Weaviate at {self.url}")
                 return
             except Exception as e:
