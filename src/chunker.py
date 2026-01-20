@@ -94,7 +94,9 @@ class DocumentChunker:
                 'title': doc.get('title', ''),
                 'url': doc.get('url', ''),
                 'chunk_index': idx,
-                'total_chunks': len(text_chunks)
+                'total_chunks': len(text_chunks),
+                'source': doc.get('source', ''),
+                'language': doc.get('language', 'en'),
             })
         
         return chunked_docs

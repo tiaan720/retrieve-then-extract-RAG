@@ -16,6 +16,7 @@ class DocumentFetcher:
         Args:
             language: Wikipedia language code (default: 'en')
         """
+        self.language = language
         wikipedia.set_lang(language)
     
     def fetch_wikipedia_articles(self, topics: List[str], max_docs: int = 10) -> List[Dict[str, str]]:
@@ -47,7 +48,9 @@ class DocumentFetcher:
                 docs.append({
                     'title': page.title,
                     'url': page.url,
-                    'content': page.content
+                    'content': page.content,
+                    'source': 'wikipedia',
+                    'language': self.language
                 })
                 logger.info(f"Successfully fetched: {page.title}")
                 
@@ -58,7 +61,9 @@ class DocumentFetcher:
                     docs.append({
                         'title': page.title,
                         'url': page.url,
-                        'content': page.content
+                        'content': page.content,
+                        'source': 'wikipedia',
+                        'language': self.language
                     })
                     logger.info(f"Successfully fetched: {page.title}")
                 except Exception as inner_e:
@@ -97,7 +102,9 @@ class DocumentFetcher:
                     docs.append({
                         'title': page.title,
                         'url': page.url,
-                        'content': page.content
+                        'content': page.content,
+                        'source': 'wikipedia',
+                        'language': self.language
                     })
                     logger.info(f"Successfully fetched: {page.title}")
                 except Exception as e:
