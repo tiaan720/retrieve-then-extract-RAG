@@ -4,6 +4,7 @@ Weaviate client module for storing and retrieving documents.
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType
 from typing import List, Dict
+from urllib.parse import urlparse
 import time
 
 
@@ -30,8 +31,6 @@ class WeaviateClient:
             max_retries: Maximum number of connection retries
             retry_delay: Delay between retries in seconds
         """
-        from urllib.parse import urlparse
-        
         for attempt in range(max_retries):
             try:
                 # Parse URL to extract host
