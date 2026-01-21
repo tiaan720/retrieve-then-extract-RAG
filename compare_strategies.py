@@ -21,12 +21,6 @@ import weaviate
 def main():
     """Run strategy comparison."""
     
-    logger.info("=" * 80)
-    logger.info("RETRIEVAL STRATEGY COMPARISON")
-    logger.info("=" * 80)
-    
-    # Initialize components
-    logger.info("\n1. Initializing components...")
     config = Config()
     fetcher = DocumentFetcher()
     extractor = TextExtractor()
@@ -38,9 +32,7 @@ def main():
         base_url=config.OLLAMA_BASE_URL,
         model=config.OLLAMA_MODEL
     )
-    
 
-    logger.info("\n2. Connecting to Weaviate...")
     from src.weaviate_client import WeaviateClient
     temp_client = WeaviateClient(
         url=config.WEAVIATE_URL,
@@ -56,11 +48,9 @@ def main():
             client=client,
             vector_dimensions=config.EMBEDDING_DIMENSIONS
         )
-    
-        logger.info("\n3. Creating collections for each strategy...")
+
         collection_manager.create_all_collections()
  
-        logger.info("\n4. Fetching and processing documents...")
         topics = [
             # Core AI/ML topics (original)
             "Artificial intelligence",
@@ -115,7 +105,7 @@ def main():
             "Clustering",
             "Classification",
         ]
-        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=60)
+        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=90)
         logger.info(f"Fetched {len(docs)} documents")
         
         cleaned_docs = extractor.extract_from_documents(docs)
@@ -124,17 +114,12 @@ def main():
         chunks = chunker.chunk_documents(cleaned_docs)
         logger.info(f"Created {len(chunks)} chunks")
         
-        # Generate embeddings
-        logger.info("\n5. Generating embeddings...")
+
         embedded_chunks = embedder.embed_chunks(chunks)
         logger.info(f"Generated {len(embedded_chunks)} embeddings")
         
-        # Store chunks in all collections
-        logger.info("\n6. Storing chunks in all collections...")
         collection_manager.store_chunks_in_all_collections(embedded_chunks)
         
-        # Initialize strategies
-        logger.info("\n7. Initializing retrieval strategies...")
         strategies = [
             StandardHNSW(collection_manager.get_collection("StandardHNSW")),
             BinaryQuantized(collection_manager.get_collection("BinaryQuantized")),
@@ -144,14 +129,11 @@ def main():
         ]
         logger.info(f"Initialized {len(strategies)} strategies")
         
-        # Create test queries from ground truth
-        logger.info("\n8. Loading ground truth queries...")
         test_queries = get_ground_truth_queries()
         ground_truth = get_ground_truth_map()
         logger.info(f"Loaded {len(test_queries)} queries with ground truth annotations")
-        
-        # Benchmark all strategies
-        logger.info("\n9. Benchmarking strategies...")
+     
+        logger.info("\nBenchmarking strategies.")
         evaluator = RetrievalEvaluator(embedder, ground_truth=ground_truth)
         
         evaluator.benchmark_all_strategies(
@@ -161,15 +143,11 @@ def main():
             warmup_queries=2
         )
         
-        # Print comparison table
-        logger.info("\n10. Results:")
         evaluator.print_comparison_table()
         
-        # Save results
         evaluator.save_results("benchmark_results.json")
-        
-        # Test a sample query
-        logger.info("\n11. Sample query test:")
+  
+        logger.info("\nSample query test:")
         sample_query = "What is machine learning?"
         sample_embedding = embedder.embed_text(sample_query)
         
