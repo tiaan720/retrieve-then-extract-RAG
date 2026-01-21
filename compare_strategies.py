@@ -62,6 +62,7 @@ def main():
  
         logger.info("\n4. Fetching and processing documents...")
         topics = [
+            # Core AI/ML topics (original)
             "Artificial intelligence",
             "Machine learning",
             "Natural language processing",
@@ -69,9 +70,52 @@ def main():
             "Neural network",
             "Computer vision",
             "Reinforcement learning",
-            "Transformer (machine learning)",
+            "Transformer (deep learning architecture)",
+            "Convolutional neural network",
+            "Recurrent neural network",
+            "Generative adversarial network",
+            "Long short-term memory",
+            "Backpropagation",
+            "Gradient descent",
+            "Support vector machine",
+            "Decision tree",
+            "Random forest",
+            "K-nearest neighbors algorithm",
+            "Naive Bayes classifier",
+            "Logistic regression",
+            "Linear regression",
+            "Word embedding",
+            "Word2vec",
+            "BERT (language model)",
+            "GPT-4",
+            "Attention (machine learning)",
+            "Sequence-to-sequence",
+            "Named entity recognition",
+            "Sentiment analysis",
+            "Text mining",
+            "Algorithm",
+            "Data structure",
+            "Database",
+            "Distributed computing",
+            "Cloud computing",
+            "Computer programming",
+            "Software engineering",
+            "Operating system",
+            "Statistics",
+            "Probability theory",
+            "Linear algebra",
+            "Calculus",
+            "Optimization (mathematics)",
+            "Data science",
+            "Big data",
+            "Data mining",
+            "Feature engineering",
+            "Dimensionality reduction",
+            "Principal component analysis",
+            "Clustering",
+            "Classification",
         ]
-        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=10)
+        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=60)
         logger.info(f"Fetched {len(docs)} documents")
         
         cleaned_docs = extractor.extract_from_documents(docs)
