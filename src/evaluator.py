@@ -26,15 +26,17 @@ class StrategyBenchmark:
 class RetrievalEvaluator:
     """Evaluates and compares retrieval strategies using real ground truth."""
     
-    def __init__(self, embedder, ground_truth: Optional[Dict[str, List[str]]] = None):
+    def __init__(self, embedder, ground_truth: Optional[Dict[str, List[str]]] = None, colbert_embedder=None):
         """
         Initialize evaluator.
         
         Args:
-            embedder: Embedding generator for queries
+            embedder: Embedding generator for queries (Ollama for standard strategies)
             ground_truth: Dict mapping query -> list of expected document titles
+            colbert_embedder: Optional ColBERT embedder for multi-vector strategies
         """
         self.embedder = embedder
+        self.colbert_embedder = colbert_embedder
         self.results = {}
         self.ground_truth = ground_truth or {}
     
@@ -59,10 +61,17 @@ class RetrievalEvaluator:
         """
         logger.info(f"Benchmarking: {strategy.name}")
         
+        # Determine which embedder to use
+        is_colbert = "ColBERT" in strategy.name
+        active_embedder = self.colbert_embedder if is_colbert and self.colbert_embedder else self.embedder
+        
+        if is_colbert and not self.colbert_embedder:
+            logger.warning(f"ColBERT embedder not provided for {strategy.name}, using default embedder")
+        
         # Warmup
         if warmup_queries > 0:
             for i in range(min(warmup_queries, len(queries))):
-                query_vec = self.embedder.embed_text(queries[i])
+                query_vec = active_embedder.embed_text(queries[i])
                 strategy.search(query_vec, queries[i], limit=limit)
         
         # Collect metrics
@@ -72,7 +81,7 @@ class RetrievalEvaluator:
         for query in queries:
             # Measure total time (embedding + search)
             start_time = time.time()
-            query_vec = self.embedder.embed_text(query)
+            query_vec = active_embedder.embed_text(query)
             results, _ = strategy.search(query_vec, query, limit=10)
             total_time = (time.time() - start_time) * 1000
             

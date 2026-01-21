@@ -3,7 +3,17 @@ from abc import ABC, abstractmethod
 from langchain_ollama import OllamaEmbeddings
 import requests
 import os
+from tqdm import tqdm
 from src.logger import logger
+
+# Optional imports for local ColBERT
+try:
+    import torch
+    from transformers import AutoTokenizer, AutoModel
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    logger.warning("torch and/or transformers not available - HuggingFaceEmbedder will not work")
 
 
 class BaseEmbedder(ABC):
@@ -44,11 +54,12 @@ class BaseEmbedder(ABC):
         # Generate embeddings (with optional batching)
         if batch_size:
             embeddings = []
-            for i in range(0, len(texts), batch_size):
+            pbar = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings", unit="batch")
+            for i in pbar:
                 batch = texts[i:i + batch_size]
                 batch_embeddings = self.embed_texts(batch)
                 embeddings.extend(batch_embeddings)
-                logger.info(f"Processed {min(i + batch_size, len(texts))}/{len(texts)} chunks")
+                pbar.set_postfix({"chunks": f"{min(i + batch_size, len(texts))}/{len(texts)}"})
         else:
             embeddings = self.embed_texts(texts)
         
@@ -68,16 +79,21 @@ class BaseEmbedder(ABC):
         return embedded_chunks
 
 
-class ColBERTEmbedder(BaseEmbedder):
-    """Generates multi-vector ColBERT embeddings using Jina AI API."""
+class JinaAIEmbedder(BaseEmbedder):
+    """Generates multi-vector embeddings using Jina AI API.
+    
+    Supports various Jina AI embedding models including:
+    - jina-colbert-v2 (multi-vector ColBERT embeddings)
+    - Other Jina AI embedding models
+    """
     
     def __init__(self, api_key: Optional[str] = None, model: str = "jina-colbert-v2"):
         """
-        Initialize ColBERT embedder with Jina AI.
+        Initialize Jina AI embedder.
         
         Args:
             api_key: Jina AI API key (if None, reads from JINAAI_APIKEY env var)
-            model: Model name (default: jina-colbert-v2)
+            model: Model name (e.g., 'jina-colbert-v2' for ColBERT embeddings)
             
         Raises:
             ValueError: If API key is not provided or found
@@ -91,7 +107,7 @@ class ColBERTEmbedder(BaseEmbedder):
         
         self.model = model
         self.api_url = "https://api.jina.ai/v1/embeddings"
-        logger.info(f"Initialized ColBERT embedder with model: {model}")
+        logger.info(f"Initialized Jina AI embedder with model: {model}")
     
     def _make_api_request(self, input_data: Union[str, List[str]], timeout: int = 30) -> dict:
         """
@@ -168,7 +184,7 @@ class ColBERTEmbedder(BaseEmbedder):
     
     def embed_texts(self, texts: List[str]) -> List[List[List[float]]]:
         """
-        Generate ColBERT multi-vector embeddings for multiple texts.
+        Generate multi-vector embeddings for multiple texts.
         
         Args:
             texts: List of texts to embed
@@ -202,9 +218,204 @@ class ColBERTEmbedder(BaseEmbedder):
         )
 
 
+class HuggingFaceEmbedder(BaseEmbedder):
+    """
+    Generates multi-vector embeddings using local HuggingFace models.
+    
+    This embedder loads a transformer model locally and generates token-level embeddings
+    for late interaction. No API keys required - everything runs locally.
+    
+    Works with any HuggingFace model that outputs token-level embeddings.
+    
+    Popular ColBERT models:
+    - colbert-ir/colbertv2.0 (16M+ downloads, classic ColBERT v2)
+    - mixedbread-ai/mxbai-edge-colbert-v0-17m (360K+ downloads, optimized for edge)
+    - mixedbread-ai/mxbai-edge-colbert-v0-32m (smaller, faster)
+    
+    Other models:
+    - Any transformer model from HuggingFace that outputs hidden states
+    """
+    
+    def __init__(
+        self, 
+        model_name: str = "colbert-ir/colbertv2.0",
+        device: Optional[str] = None,
+        max_length: int = 512
+    ):
+        """
+        Initialize HuggingFace embedder.
+        
+        Args:
+            model_name: HuggingFace model identifier (any transformer model)
+            device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
+            max_length: Maximum sequence length for tokenization
+            
+        Raises:
+            ImportError: If torch or transformers not installed
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError(
+                "HuggingFaceEmbedder requires torch and transformers. "
+                "Install with: pip install torch transformers"
+            )
+        
+        self.model_name = model_name
+        self.max_length = max_length
+        
+        # Auto-detect device if not specified
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        
+        self.device = torch.device(device)
+        logger.info(f"Using device: {self.device}")
+        
+        # Load tokenizer and model
+        logger.info(f"Loading HuggingFace model: {model_name}")
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name)
+            self.model.to(self.device)
+            self.model.eval()  # Set to evaluation mode
+            logger.info(f"Successfully loaded {model_name}")
+        except Exception as e:
+            logger.error(f"Failed to load model {model_name}: {e}")
+            raise
+    
+    def _encode(self, texts: Union[str, List[str]]) -> List[List[List[float]]]:
+        """
+        Internal method to encode texts into multi-vector embeddings.
+        
+        Args:
+            texts: Single text or list of texts
+            
+        Returns:
+            List of multi-vector embeddings (batch_size × num_tokens × embedding_dim)
+        """
+        # Ensure texts is a list
+        if isinstance(texts, str):
+            texts = [texts]
+        
+        try:
+            # Tokenize
+            inputs = self.tokenizer(
+                texts,
+                padding=True,
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors="pt"
+            ).to(self.device)
+            
+            # Generate embeddings
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                # Get last hidden state (token-level embeddings)
+                embeddings = outputs.last_hidden_state
+            
+            # Convert to list format and remove padding tokens
+            result = []
+            for i, embedding in enumerate(embeddings):
+                # Get attention mask to identify real tokens (not padding)
+                attention_mask = inputs['attention_mask'][i]
+                # Only keep embeddings for real tokens
+                real_tokens = embedding[attention_mask.bool()]
+                # Convert to nested list format
+                token_embeddings = real_tokens.cpu().tolist()
+                result.append(token_embeddings)
+            
+            return result
+        except Exception as e:
+            logger.error(
+                f"Failed to encode {len(texts)} texts: {type(e).__name__}: {str(e)[:200]}"
+            )
+            raise
+    
+    def embed_text(self, text: str) -> List[List[float]]:
+        """
+        Generate ColBERT multi-vector embedding for a single text.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Multi-vector embedding (num_tokens × embedding_dim)
+        """
+        embeddings = self._encode(text)
+        return embeddings[0]
+    
+    def embed_texts(self, texts: List[str], batch_size: int = 8) -> List[List[List[float]]]:
+        """
+        Generate ColBERT multi-vector embeddings for multiple texts.
+        
+        Args:
+            texts: List of texts to embed
+            batch_size: Number of texts to process at once
+            
+        Returns:
+            List of multi-vector embeddings
+        """
+        all_embeddings = []
+        
+        # Process in batches to avoid memory issues
+        pbar = tqdm(range(0, len(texts), batch_size), desc="Encoding texts", unit="batch")
+        for i in pbar:
+            batch = texts[i:i + batch_size]
+            batch_embeddings = self._encode(batch)
+            all_embeddings.extend(batch_embeddings)
+            pbar.set_postfix({"texts": f"{min(i + batch_size, len(texts))}/{len(texts)}"})
+        
+        return all_embeddings
+    
+    def embed_chunks(self, chunks: List[dict], batch_size: int = 8) -> List[dict]:
+        """
+        Generate multi-vector embeddings for document chunks.
+        
+        Args:
+            chunks: List of chunk dictionaries with 'content' key
+            batch_size: Batch size for processing
+            
+        Returns:
+            List of chunk dictionaries with added 'multi_vector_embedding' key
+        """
+        logger.info(f"Generating HuggingFace embeddings for {len(chunks)} chunks")
+        
+        try:
+            # Extract text content
+            texts = [chunk['content'] for chunk in chunks]
+            
+            # Generate embeddings
+            embeddings = self.embed_texts(texts, batch_size=batch_size)
+            
+            # Add embeddings to chunks
+            embedded_chunks = []
+            for chunk, embedding in zip(chunks, embeddings):
+                chunk_with_embedding = chunk.copy()
+                chunk_with_embedding['multi_vector_embedding'] = embedding
+                embedded_chunks.append(chunk_with_embedding)
+            
+            logger.info(f"Successfully generated {len(embedded_chunks)} HuggingFace embeddings")
+            
+            # Log shape info
+            avg_tokens = sum(len(emb) for emb in embeddings) / len(embeddings)
+            logger.info(f"Average tokens per chunk: {avg_tokens:.1f}")
+            if embeddings and embeddings[0]:
+                logger.info(f"Embedding dimensions: {len(embeddings[0][0])}")
+            
+            return embedded_chunks
+        except Exception as e:
+            logger.error(
+                f"Failed to embed {len(chunks)} chunks: {type(e).__name__}: {str(e)[:200]}"
+            )
+            raise
+
+
 class EmbeddingGenerator(BaseEmbedder):
     """Generates embeddings using Ollama via LangChain."""
-    
+    # ollama also has a jina model nabed: jina/jina-embeddings-v2-base-en (its not the colbert model)
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "snowflake-arctic-embed:33m"):
         """
         Initialize the embedding generator.
@@ -297,31 +508,28 @@ def create_embedder(
     embedder_type: str = "single",
     base_url: str = "http://localhost:11434",
     model: str = "snowflake-arctic-embed:33m",
-    api_key: Optional[str] = None
-) -> Union[EmbeddingGenerator, ColBERTEmbedder]:
+    api_key: Optional[str] = None,
+    colbert_model: str = "colbert-ir/colbertv2.0"
+) -> Union[EmbeddingGenerator, JinaAIEmbedder, HuggingFaceEmbedder]:
     """
     Factory function to create appropriate embedder.
     
     Args:
-        embedder_type: Type of embedder ("single" or "colbert")
+        embedder_type: Type of embedder ("single", "jina", or "huggingface")
         base_url: Base URL for Ollama (used for single embedder)
         model: Model name
-        api_key: API key for ColBERT (Jina AI)
+        api_key: API key for Jina AI - only needed for "jina" type
+        colbert_model: HuggingFace model for local embeddings (default: mxbai-edge-colbert-v0-17m)
         
     Returns:
-        Either EmbeddingGenerator or ColBERTEmbedder instance
-        
-    Examples:
-        >>> # Single-vector embedder (Ollama)
-        >>> embedder = create_embedder("single", model="snowflake-arctic-embed:33m")
-        
-        >>> # Multi-vector ColBERT embedder (Jina AI)
-        >>> embedder = create_embedder("colbert", api_key="jina_xxx")
+        EmbeddingGenerator, JinaAIEmbedder, or HuggingFaceEmbedder instance
     """
-    if embedder_type == "colbert":
-        return ColBERTEmbedder(api_key=api_key, model="jina-colbert-v2")
+    if embedder_type == "jina":
+        return JinaAIEmbedder(api_key=api_key, model="jina-colbert-v2")
+    elif embedder_type == "huggingface":
+        return HuggingFaceEmbedder(model_name=colbert_model)
     elif embedder_type == "single":
         return EmbeddingGenerator(base_url=base_url, model=model)
     else:
-        raise ValueError(f"Unknown embedder_type: {embedder_type}. Use 'single' or 'colbert'.")
+        raise ValueError(f"Unknown embedder_type: {embedder_type}. Use 'single', 'jina', or 'huggingface'.")
 

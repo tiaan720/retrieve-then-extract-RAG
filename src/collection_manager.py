@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType, VectorDistances, Tokenization
+from tqdm import tqdm
 from src.logger import logger
 
 
@@ -80,6 +81,14 @@ class CollectionManager:
             max_connections=32,  # Lower memory
             description="Article's staged retrieval (binary → int8 → fp32)"
         ),
+        "ColBERTMultiVector": CollectionConfig(
+            name="Document_ColBERTMultiVector",
+            enable_binary_quantization=False,
+            enable_reranker=False,
+            ef_construction=128,
+            max_connections=64,
+            description="ColBERT multi-vector embeddings with late interaction"
+        ),
     }
     
     def __init__(self, client: weaviate.WeaviateClient, vector_dimensions: int = 384):
@@ -132,12 +141,26 @@ class CollectionManager:
         if config.enable_reranker:
             reranker_config = Configure.Reranker.transformers()
         
-        # Create collection
+        # Determine if this is a multi-vector collection
+        is_multi_vector = "ColBERT" in config.name
+        
+        # Create collection with appropriate vector config
+        if is_multi_vector:
+            # Multi-vector configuration (for ColBERT)
+            # Use named vector for better practices
+            vector_config = Configure.MultiVectors.self_provided(
+                name="colbert",  # Named vector
+                vector_index_config=hnsw_config,
+            )
+        else:
+            # Single vector configuration (standard)
+            vector_config = Configure.Vectors.self_provided(
+                vector_index_config=hnsw_config,
+            )
+        
         collection = self.client.collections.create(
             name=config.name,
-            vector_config=Configure.Vectors.self_provided(
-                vector_index_config=hnsw_config,
-            ),
+            vector_config=vector_config,
             reranker_config=reranker_config,
             properties=[
                 Property(
@@ -224,24 +247,71 @@ class CollectionManager:
         
         logger.info(f"Storing {len(chunks)} chunks in {collection_name}")
         
-        with collection.batch.dynamic() as batch:
-            for chunk in chunks:
-                properties = {
-                    "content": chunk.get("content", ""),
-                    "title": chunk.get("title", ""),
-                    "url": chunk.get("url", ""),
-                    "chunk_index": chunk.get("chunk_index", 0),
-                    "total_chunks": chunk.get("total_chunks", 0),
-                    "source": chunk.get("source", "wikipedia"),
-                    "language": chunk.get("language", "en"),
-                }
-                
-                vector = chunk.get("embedding", [])
-                
-                batch.add_object(
-                    properties=properties,
-                    vector=vector
-                )
+        # Check if this is a multi-vector collection
+        is_multi_vector = "ColBERT" in collection_name
+        
+        # Use context manager with appropriate settings
+        if is_multi_vector:
+            # Fixed batch size for multi-vector to avoid timeouts
+            # Multi-vector embeddings are much larger, so use smaller batches
+            with collection.batch.fixed_size(batch_size=10) as batch:
+                pbar = tqdm(enumerate(chunks), total=len(chunks), desc=f"Storing in {collection_name}", unit="chunk")
+                for idx, chunk in pbar:
+                    properties = {
+                        "content": chunk.get("content", ""),
+                        "title": chunk.get("title", ""),
+                        "url": chunk.get("url", ""),
+                        "chunk_index": chunk.get("chunk_index", 0),
+                        "total_chunks": chunk.get("total_chunks", 0),
+                        "source": chunk.get("source", "wikipedia"),
+                        "language": chunk.get("language", "en"),
+                    }
+                    
+                    # Multi-vector embeddings - wrap in dictionary with named vector
+                    multi_vec = chunk.get("multi_vector_embedding", [])
+                    vector = {"colbert": multi_vec}  # Named vector requires dictionary
+                    
+                    try:
+                        batch.add_object(
+                            properties=properties,
+                            vector=vector
+                        )
+                    except Exception as e:
+                        # Log error without printing embedding values
+                        logger.error(
+                            f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
+                            f"{type(e).__name__}: {str(e)[:200]}"
+                        )
+                        raise
+        else:
+            # Dynamic batch for single-vector (faster)
+            with collection.batch.dynamic() as batch:
+                pbar = tqdm(enumerate(chunks), total=len(chunks), desc=f"Storing in {collection_name}", unit="chunk")
+                for idx, chunk in pbar:
+                    properties = {
+                        "content": chunk.get("content", ""),
+                        "title": chunk.get("title", ""),
+                        "url": chunk.get("url", ""),
+                        "chunk_index": chunk.get("chunk_index", 0),
+                        "total_chunks": chunk.get("total_chunks", 0),
+                        "source": chunk.get("source", "wikipedia"),
+                        "language": chunk.get("language", "en"),
+                    }
+                    
+                    vector = chunk.get("embedding", [])
+                    
+                    try:
+                        batch.add_object(
+                            properties=properties,
+                            vector=vector
+                        )
+                    except Exception as e:
+                        # Log error without printing embedding values
+                        logger.error(
+                            f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
+                            f"{type(e).__name__}: {str(e)[:200]}"
+                        )
+                        raise
         
         logger.info(f"Stored {len(chunks)} chunks in {collection_name}")
     

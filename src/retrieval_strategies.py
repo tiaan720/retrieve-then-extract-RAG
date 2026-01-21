@@ -329,3 +329,61 @@ class BinaryInt8Staged(RetrievalStrategy):
         )
         
         return results, metrics
+
+
+class ColBERTMultiVector(RetrievalStrategy):
+    """
+    ColBERT multi-vector embedding search with late interaction.
+    
+    Uses ColBERT embeddings where each text is represented by multiple vectors
+    (one per token). This enables more nuanced similarity matching through
+    late interaction - comparing individual parts of texts rather than whole
+    document representations.
+    """
+    
+    def __init__(self, collection):
+        super().__init__("ColBERTMultiVector", collection)
+    
+    def search(
+        self,
+        query_vector: List[List[float]],  # Multi-vector: [[...], [...], ...]
+        query_text: str,
+        limit: int = 5
+    ) -> tuple[List[Dict], RetrievalMetrics]:
+        """
+        Search using ColBERT multi-vector embeddings.
+        
+        Args:
+            query_vector: Multi-vector query embedding (list of vectors)
+            query_text: Query text (for logging)
+            limit: Number of results to return
+            
+        Returns:
+            Tuple of (results, metrics)
+        """
+        search_start = time.time()
+        
+        # Weaviate handles multi-vector comparison internally
+        # using MaxSim (maximum similarity) late interaction
+        # For named multi-vector collections, wrap in dictionary with target name
+        response = self.collection.query.near_vector(
+            target_vector="colbert",  # Specify which named vector to search
+            near_vector=query_vector,  # Pass list of vectors directly
+            limit=limit
+        )
+        
+        search_time = (time.time() - search_start) * 1000
+        
+        results = self._extract_results(response)
+        
+        metrics = RetrievalMetrics(
+            query_time_ms=0,  # Set by caller
+            embedding_time_ms=0,  # Set by caller
+            search_time_ms=search_time,
+            postprocess_time_ms=0,
+            total_time_ms=search_time,
+            results_count=len(results),
+            strategy_name=self.name
+        )
+        
+        return results, metrics

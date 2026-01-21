@@ -15,6 +15,9 @@ class Config(BaseSettings):
     OLLAMA_MODEL: str = Field(default="snowflake-arctic-embed:33m", alias="OLLAMA_MODEL")
     EMBEDDING_DIMENSIONS: int = Field(default=384, alias="EMBEDDING_DIMENSIONS")
     
+    # Jina AI settings (for ColBERT multi-vector embeddings)
+    JINAAI_APIKEY: str = Field(default="", alias="JINAAI_APIKEY")
+    
     # Chunking settings
     CHUNK_SIZE: int = Field(default=500, alias="CHUNK_SIZE")
     CHUNK_OVERLAP: int = Field(default=50, alias="CHUNK_OVERLAP")

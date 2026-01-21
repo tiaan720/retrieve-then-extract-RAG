@@ -1,4 +1,5 @@
 from typing import List, Dict
+from tqdm import tqdm
 
 
 class DocumentChunker:
@@ -109,7 +110,7 @@ class DocumentChunker:
             List of chunk dictionaries
         """
         all_chunks = []
-        for doc in docs:
+        for doc in tqdm(docs, desc="Chunking documents", unit="doc"):
             chunks = self.chunk_document(doc)
             all_chunks.extend(chunks)
         
