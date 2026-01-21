@@ -1,6 +1,3 @@
-"""
-Simple test script to validate core pipeline components.
-"""
 from src.text_extractor import TextExtractor
 from src.chunker import DocumentChunker
 
