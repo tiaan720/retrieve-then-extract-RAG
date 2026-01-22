@@ -23,7 +23,6 @@ ENABLE_MULTI_VECTOR = False
 
 # Topics to fetch from Wikipedia
 TOPICS = [
-    # Core AI/ML topics
     "Artificial intelligence",
     "Machine learning",
     "Natural language processing",
@@ -134,9 +133,11 @@ def main():
             vector_dimensions=config.EMBEDDING_DIMENSIONS
         )
         
+        exclude_strategies = [] if ENABLE_MULTI_VECTOR else ["ColBERTMultiVector"]
+        
         logger.info("Deleting existing collections for clean benchmark run...")
-        collection_manager.delete_all_collections()
-        collection_manager.create_all_collections()
+        collection_manager.delete_all_collections(exclude_strategies=exclude_strategies)
+        collection_manager.create_all_collections(exclude_strategies=exclude_strategies)
         
         docs = fetcher.fetch_wikipedia_articles(TOPICS, max_docs=2)
         logger.info(f"Fetched {len(docs)} documents")
@@ -160,7 +161,10 @@ def main():
             logger.info("Merged single and multi-vector embeddings")
         
 
-        collection_manager.store_chunks_in_all_collections(embedded_chunks)
+        collection_manager.store_chunks_in_all_collections(
+            embedded_chunks, 
+            exclude_strategies=exclude_strategies
+        )
         
         strategies = build_single_vector_strategies(collection_manager, config)
         
@@ -173,7 +177,7 @@ def main():
         ground_truth = get_ground_truth_map()
         logger.info(f"Loaded {len(test_queries)} queries with ground truth annotations")
         
-        logger.info("\nBenchmarking strategies...")
+        logger.info("\nBenchmarking strategies.")
         evaluator = RetrievalEvaluator(
             embedder,
             ground_truth=ground_truth,
@@ -197,7 +201,7 @@ def main():
         sys.exit(1)
     
     finally:
-        logger.info("\nClosing connections...")
+        logger.info("\nClosing connections.")
         client.close()
         logger.info("Done")
 

@@ -200,11 +200,23 @@ class CollectionManager:
         logger.info(f"Created collection: {config.name}")
         self.collections[config.name] = collection
     
-    def create_all_collections(self) -> None:
-        """Create all predefined collections for strategy comparison."""
-        logger.info(f"Creating {len(self.CONFIGS)} collections for strategy comparison")
+    def create_all_collections(self, exclude_strategies: Optional[List[str]] = None) -> None:
+        """Create all predefined collections for strategy comparison.
         
-        for strategy_name, config in self.CONFIGS.items():
+        Args:
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
+        """
+        exclude_strategies = exclude_strategies or []
+        configs_to_create = {
+            k: v for k, v in self.CONFIGS.items() 
+            if k not in exclude_strategies
+        }
+        
+        logger.info(f"Creating {len(configs_to_create)} collections for strategy comparison")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name, config in configs_to_create.items():
             self.create_collection(config)
         
         logger.info("All collections created")
@@ -305,16 +317,29 @@ class CollectionManager:
         
         logger.info(f"Stored {len(chunks)} chunks in {collection_name}")
     
-    def store_chunks_in_all_collections(self, chunks: List[Dict]) -> None:
+    def store_chunks_in_all_collections(
+        self, 
+        chunks: List[Dict], 
+        exclude_strategies: Optional[List[str]] = None
+    ) -> None:
         """
         Store same chunks in all collections for fair comparison.
         
         Args:
             chunks: List of chunk dictionaries with embeddings
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
         """
-        logger.info(f"Storing {len(chunks)} chunks in all collections")
+        exclude_strategies = exclude_strategies or []
+        configs_to_store = {
+            k: v for k, v in self.CONFIGS.items() 
+            if k not in exclude_strategies
+        }
         
-        for strategy_name, config in self.CONFIGS.items():
+        logger.info(f"Storing {len(chunks)} chunks in {len(configs_to_store)} collections")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name, config in configs_to_store.items():
             self.store_chunks_in_collection(config.name, chunks)
         
         logger.info("All collections populated.")
@@ -335,11 +360,23 @@ class CollectionManager:
             self.client.collections.delete(config.name)
             logger.info(f"Deleted collection: {config.name}")
     
-    def delete_all_collections(self) -> None:
-        """Delete all predefined collections."""
-        logger.info("Deleting all collections")
+    def delete_all_collections(self, exclude_strategies: Optional[List[str]] = None) -> None:
+        """Delete all predefined collections.
         
-        for strategy_name in self.CONFIGS.keys():
+        Args:
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
+        """
+        exclude_strategies = exclude_strategies or []
+        strategies_to_delete = [
+            k for k in self.CONFIGS.keys() 
+            if k not in exclude_strategies
+        ]
+        
+        logger.info(f"Deleting {len(strategies_to_delete)} collections")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name in strategies_to_delete:
             try:
                 self.delete_collection(strategy_name)
             except Exception as e:
