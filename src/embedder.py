@@ -7,7 +7,7 @@ import os
 from tqdm import tqdm
 from langchain_ollama import OllamaEmbeddings
 
-from src.logger import logger
+from src.utils.logger import logger
 from src.config import Config
 
 try:

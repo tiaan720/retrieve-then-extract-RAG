@@ -15,7 +15,7 @@ from src.retrieval_strategies import (
 )
 from src.evaluator import RetrievalEvaluator
 from src.ground_truth import get_ground_truth_queries, get_ground_truth_map
-from src.logger import logger
+from src.utils.logger import logger
 
 
 

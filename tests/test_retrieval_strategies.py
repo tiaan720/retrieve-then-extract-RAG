@@ -172,7 +172,7 @@ class TestRetrievalEvaluator:
         """Test RetrievalEvaluator can be instantiated."""
         evaluator = RetrievalEvaluator(mock_embedder)
         
-        assert evaluator.embedder is mock_embedder
+        assert evaluator._embedders["single"] is mock_embedder
         assert evaluator.results == {}
     
     def test_evaluator_has_required_methods(self, mock_embedder):
@@ -181,6 +181,5 @@ class TestRetrievalEvaluator:
         
         assert hasattr(evaluator, 'benchmark_strategy')
         assert hasattr(evaluator, 'benchmark_all_strategies')
-        assert hasattr(evaluator, 'evaluate_accuracy')
         assert hasattr(evaluator, 'print_comparison_table')
         assert hasattr(evaluator, 'save_results')

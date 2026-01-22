@@ -4,7 +4,7 @@ from weaviate.classes.query import Rerank
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import time
-from src.logger import logger
+from src.utils.logger import logger
 
 
 class WeaviateClient:

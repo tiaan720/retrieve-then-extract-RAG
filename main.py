@@ -5,7 +5,7 @@ from src.text_extractor import TextExtractor
 from src.chunker import DocumentChunker
 from src.embedder import create_embedder
 from src.weaviate_client import WeaviateClient
-from src.logger import logger
+from src.utils.logger import logger
 
 
 def main():

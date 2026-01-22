@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Union
 from dataclasses import dataclass, asdict
 import json
 
-from src.logger import logger
+from src.utils.logger import logger
 from src.retrieval_strategies import RetrievalStrategy, RetrievalMetrics
 from src.embedder import BaseEmbedder, SingleVectorEmbedder, MultiVectorEmbedder
 

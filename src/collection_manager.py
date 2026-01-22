@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType, VectorDistances, Tokenization
 from tqdm import tqdm
-from src.logger import logger
+from src.utils.logger import logger
 
 
 class CollectionConfig:

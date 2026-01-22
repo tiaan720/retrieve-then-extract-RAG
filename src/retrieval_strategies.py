@@ -7,7 +7,7 @@ import time
 from weaviate.classes.query import Rerank
 
 from src.config import Config
-from src.logger import logger
+from src.utils.logger import logger
 
 
 @dataclass
