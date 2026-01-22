@@ -3,9 +3,9 @@ from src.config import Config
 from src.document_fetcher import DocumentFetcher
 from src.text_extractor import TextExtractor
 from src.chunker import DocumentChunker
-from src.embedder import EmbeddingGenerator
+from src.embedder import create_embedder
 from src.weaviate_client import WeaviateClient
-from src.logger import logger
+from src.utils.logger import logger
 
 
 def main():
@@ -20,10 +20,10 @@ def main():
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP
     )
-    embedder = EmbeddingGenerator(
-        base_url=config.OLLAMA_BASE_URL,
-        model=config.OLLAMA_MODEL
-    )
+    
+    # Use factory to create embedder - config defaults are used automatically
+    embedder = create_embedder("ollama", config=config)
+    
     weaviate_client = WeaviateClient(
         url=config.WEAVIATE_URL,
         collection_name=config.COLLECTION_NAME,

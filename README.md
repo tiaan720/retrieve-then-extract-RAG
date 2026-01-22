@@ -1,67 +1,23 @@
 # retrieve-then-extract-RAG
 
-A production-ready RAG (Retrieval-Augmented Generation) pipeline with advanced retrieval capabilities using Weaviate vector database and Ollama embeddings.
+A benchmarking framework to compare different retrieval strategies in Weaviate, helping determine the fastest and most accurate approach for RAG pipelines.
 
-## Features
+## Retrieval Strategies
 
-- **Document Fetching**: Fetches Wikipedia articles for RAG testing
-- **Text Extraction**: Cleans and preprocesses text content using LangChain approach
-- **Chunking**: Intelligently splits documents into overlapping chunks
-- **Embeddings**: Generates 384-dimensional embeddings using Ollama (snowflake-arctic-embed:33m)
-- **Vector Storage**: Stores and retrieves documents using Weaviate with HNSW index
-- **Hybrid Search**: Combines vector similarity (semantic) with BM25 (keyword) search
-- **Binary Quantization**: Optional 32x memory reduction with minimal accuracy loss
-- **Reranking**: Cross-encoder reranking for improved relevance
+The framework benchmarks 6 retrieval strategies:
 
-## Pipeline Architecture
-
-The pipeline follows a sequential flow:
-
-```
-┌─────────────────────┐
-│  Document Fetcher   │  Fetch articles from Wikipedia
-│  (document_fetcher) │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Text Extractor     │  Clean and normalize text
-│  (text_extractor)   │  (LangChain approach)
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Document Chunker   │  Split into overlapping chunks
-│  (chunker)          │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Embedding Gen.     │  Generate vectors via Ollama
-│  (embedder)         │  using snowflake-arctic-embed:33m (384 dims)
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Weaviate Client    │  Store chunks + embeddings
-│  (weaviate_client)  │  in vector database
-└─────────────────────┘
-           │
-           ▼
-    [Query Interface]
-```
-
-**Key Components:**
-
-1. **DocumentFetcher**: Retrieves articles from Wikipedia using the wikipedia-py library
-2. **TextExtractor**: Cleans and normalizes raw text content using LangChain-style processing
-3. **DocumentChunker**: Splits documents with configurable chunk size and overlap
-4. **EmbeddingGenerator**: Uses LangChain's OllamaEmbeddings for flexibility
-5. **WeaviateClient**: Manages vector database operations with retry logic
+| Strategy | Description |
+|----------|-------------|
+| **StandardHNSW** | Baseline fp32 HNSW vector search |
+| **BinaryQuantized** | 32x memory reduction with binary quantization |
+| **HybridSearch** | BM25 + vector similarity combined |
+| **CrossEncoderRerank** | Two-stage retrieval with cross-encoder reranking |
+| **BinaryInt8Staged** | Binary filter → Int8 rescore staged retrieval |
+| **ColBERTMultiVector** | ColBERT late interaction scoring (requires Jina API key) |
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - Docker and Docker Compose
 - Ollama installed locally ([Install Ollama](https://ollama.ai/))
 
@@ -82,10 +38,8 @@ pip install -r requirements.txt
 ### 2. Start Ollama and Pull the Embedding Model
 
 ```bash
-# Start Ollama (if not already running)
 ollama serve
 
-# In another terminal, pull the embedding model
 ollama pull snowflake-arctic-embed:33m
 ```
 
@@ -97,68 +51,64 @@ docker-compose up -d
 
 This will start a Weaviate instance on `http://localhost:8080`.
 
-### 4. Configure Environment (Optional)
-
-Copy the example environment file and adjust settings if needed:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` to configure:
-- Weaviate URL
-- Ollama base URL and model
-- Chunk size and overlap
-
 ## Usage
 
-### Run Component Tests
-
-Verify the core components are working:
+### Compare Retrieval Strategies (Main Purpose)
 
 ```bash
-python test_components.py
+uv run python compare_strategies.py
 ```
 
-### Run the Complete Pipeline
+This will:
+1. Fetch  Wikipedia articles on AI/ML topics
+2. Create separate Weaviate collections for each strategy
+3. Benchmark all strategies against ground truth queries
+4. Output a comparison table with latency, precision, and recall metrics
+5. Save detailed results to `benchmark_results.json`
+
+### Run Basic Pipeline Demo
 
 ```bash
 uv run python main.py
 ```
 
-This will:
-1. Fetch Wikipedia articles on AI topics
-2. Extract and clean the text
-3. Chunk the documents
-4. Generate embeddings using Ollama
-5. Store everything in Weaviate
-6. Run a test query
+Runs a simple demo that fetches 5 articles, stores them in Weaviate, and executes test queries.
 
-## Project Structure
+### Run Tests
 
-```
-.
-├── docker-compose.yml          # Weaviate Docker configuration
-├── requirements.txt            # Python dependencies
-├── .env.example               # Example environment configuration
-├── main.py                    # Main pipeline script
-├── test_components.py         # Component tests
-└── src/
-    ├── config.py              # Configuration settings
-    ├── document_fetcher.py    # Document fetching from Wikipedia
-    ├── text_extractor.py      # Text extraction and cleaning
-    ├── chunker.py             # Document chunking
-    ├── embedder.py            # Embedding generation with Ollama
-    └── weaviate_client.py     # Weaviate database client
+```bash
+uv run pytest
 ```
 
 ## Configuration
 
-Default settings in `.env`:
+Create a `.env` file (see `.env.example`):
 
-- `WEAVIATE_URL`: Weaviate instance URL (default: `http://localhost:8080`)
-- `OLLAMA_BASE_URL`: Ollama API URL (default: `http://localhost:11434`)
-- `OLLAMA_MODEL`: Embedding model name (default: `nomic-embed-text`)
-- `CHUNK_SIZE`: Size of text chunks in characters (default: `500`)
-- `CHUNK_OVERLAP`: Overlap between chunks (default: `50`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEAVIATE_URL` | `http://localhost:8080` | Weaviate instance URL |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API URL |
+| `OLLAMA_MODEL` | `snowflake-arctic-embed:33m` | Embedding model |
+| `EMBEDDING_DIMENSIONS` | `384` | Vector dimensions |
+| `CHUNK_SIZE` | `500` | Chunk size in characters |
+| `CHUNK_OVERLAP` | `50` | Overlap between chunks |
+| `HYBRID_ALPHA` | `0.7` | Hybrid search balance (1.0=vector, 0.0=keyword) |
+| `JINA_API_KEY` | `""` | Required for ColBERT strategy |
 
+## Project Structure
+
+```
+├── compare_strategies.py   # Main benchmarking script
+├── main.py                 # Simple pipeline demo
+├── benchmark_results.json  # Benchmark output
+├── docker-compose.yml      # Weaviate Docker setup
+└── src/
+    ├── retrieval_strategies.py  # Strategy implementations
+    ├── evaluator.py             # Benchmark evaluation
+    ├── ground_truth.py          # Test queries with expected results
+    ├── collection_manager.py    # Weaviate collection setup
+    ├── embedder.py              # Ollama/Jina/HuggingFace embeddings
+    ├── chunker.py               # Document chunking
+    ├── document_fetcher.py      # Wikipedia fetcher
+    └── text_extractor.py        # Text cleaning
+```

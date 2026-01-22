@@ -1,6 +1,6 @@
 import wikipedia
 from typing import List, Dict
-from src.logger import logger
+from src.utils.logger import logger
 
 
 class DocumentFetcher:
@@ -34,7 +34,7 @@ class DocumentFetcher:
                 logger.info(f"Fetching Wikipedia article: {topic}")
                 
                 # Search for the topic and get the best match
-                search_results = wikipedia.search(topic, results=1)
+                search_results = wikipedia.search(topic, results=10)
                 if not search_results:
                     logger.warning(f"No results found for: {topic}")
                     continue

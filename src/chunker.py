@@ -1,4 +1,5 @@
 from typing import List, Dict
+from tqdm import tqdm
 
 
 class DocumentChunker:
@@ -31,7 +32,6 @@ class DocumentChunker:
         if not text:
             return []
         
-        # Validate configuration to prevent infinite loops
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError(f"chunk_overlap ({self.chunk_overlap}) must be less than chunk_size ({self.chunk_size})")
         
@@ -59,7 +59,6 @@ class DocumentChunker:
             # Move to next chunk with overlap
             next_start = end - self.chunk_overlap
             
-            # Ensure we're making progress to avoid infinite loops
             if next_start <= start:
                 next_start = start + 1
             
@@ -109,7 +108,7 @@ class DocumentChunker:
             List of chunk dictionaries
         """
         all_chunks = []
-        for doc in docs:
+        for doc in tqdm(docs, desc="Chunking documents", unit="doc"):
             chunks = self.chunk_document(doc)
             all_chunks.extend(chunks)
         

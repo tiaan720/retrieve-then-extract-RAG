@@ -1,7 +1,8 @@
 from typing import List, Dict, Optional
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType, VectorDistances, Tokenization
-from src.logger import logger
+from tqdm import tqdm
+from src.utils.logger import logger
 
 
 class CollectionConfig:
@@ -80,6 +81,14 @@ class CollectionManager:
             max_connections=32,  # Lower memory
             description="Article's staged retrieval (binary → int8 → fp32)"
         ),
+        "ColBERTMultiVector": CollectionConfig(
+            name="Document_ColBERTMultiVector",
+            enable_binary_quantization=False,
+            enable_reranker=False,
+            ef_construction=128,
+            max_connections=64,
+            description="ColBERT multi-vector embeddings with late interaction"
+        ),
     }
     
     def __init__(self, client: weaviate.WeaviateClient, vector_dimensions: int = 384):
@@ -110,7 +119,6 @@ class CollectionManager:
         logger.info(f"  Binary quantization: {config.enable_binary_quantization}")
         logger.info(f"  Reranker: {config.enable_reranker}")
         
-        # Configure vector index
         if config.enable_binary_quantization:
             hnsw_config = Configure.VectorIndex.hnsw(
                 distance_metric=VectorDistances.COSINE,
@@ -127,17 +135,26 @@ class CollectionManager:
                 vector_cache_max_objects=10000,
             )
         
-        # Configure reranker if needed
         reranker_config = None
         if config.enable_reranker:
             reranker_config = Configure.Reranker.transformers()
         
-        # Create collection
+        # Determine if this is a multi-vector collection
+        is_multi_vector = "ColBERT" in config.name
+        
+        if is_multi_vector:
+            vector_config = Configure.MultiVectors.self_provided(
+                name="colbert",  # Named vector
+                vector_index_config=hnsw_config,
+            )
+        else:
+            vector_config = Configure.Vectors.self_provided(
+                vector_index_config=hnsw_config,
+            )
+        
         collection = self.client.collections.create(
             name=config.name,
-            vector_config=Configure.Vectors.self_provided(
-                vector_index_config=hnsw_config,
-            ),
+            vector_config=vector_config,
             reranker_config=reranker_config,
             properties=[
                 Property(
@@ -183,11 +200,23 @@ class CollectionManager:
         logger.info(f"Created collection: {config.name}")
         self.collections[config.name] = collection
     
-    def create_all_collections(self) -> None:
-        """Create all predefined collections for strategy comparison."""
-        logger.info(f"Creating {len(self.CONFIGS)} collections for strategy comparison")
+    def create_all_collections(self, exclude_strategies: Optional[List[str]] = None) -> None:
+        """Create all predefined collections for strategy comparison.
         
-        for strategy_name, config in self.CONFIGS.items():
+        Args:
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
+        """
+        exclude_strategies = exclude_strategies or []
+        configs_to_create = {
+            k: v for k, v in self.CONFIGS.items() 
+            if k not in exclude_strategies
+        }
+        
+        logger.info(f"Creating {len(configs_to_create)} collections for strategy comparison")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name, config in configs_to_create.items():
             self.create_collection(config)
         
         logger.info("All collections created")
@@ -224,40 +253,96 @@ class CollectionManager:
         
         logger.info(f"Storing {len(chunks)} chunks in {collection_name}")
         
-        with collection.batch.dynamic() as batch:
-            for chunk in chunks:
-                properties = {
-                    "content": chunk.get("content", ""),
-                    "title": chunk.get("title", ""),
-                    "url": chunk.get("url", ""),
-                    "chunk_index": chunk.get("chunk_index", 0),
-                    "total_chunks": chunk.get("total_chunks", 0),
-                    "source": chunk.get("source", "wikipedia"),
-                    "language": chunk.get("language", "en"),
-                }
-                
-                vector = chunk.get("embedding", [])
-                
-                batch.add_object(
-                    properties=properties,
-                    vector=vector
-                )
+        # Check if this is a multi-vector collection
+        is_multi_vector = "ColBERT" in collection_name
+        
+        # Use context manager with appropriate settings
+        if is_multi_vector:
+            with collection.batch.fixed_size(batch_size=20) as batch:
+                pbar = tqdm(enumerate(chunks), total=len(chunks), desc=f"Storing in {collection_name}", unit="chunk")
+                for idx, chunk in pbar:
+                    properties = {
+                        "content": chunk.get("content", ""),
+                        "title": chunk.get("title", ""),
+                        "url": chunk.get("url", ""),
+                        "chunk_index": chunk.get("chunk_index", 0),
+                        "total_chunks": chunk.get("total_chunks", 0),
+                        "source": chunk.get("source", "wikipedia"),
+                        "language": chunk.get("language", "en"),
+                    }
+                    
+                    # Multi-vector embeddings - wrap in dictionary with named vector
+                    multi_vec = chunk.get("multi_vector_embedding", [])
+                    vector = {"colbert": multi_vec} 
+                    
+                    try:
+                        batch.add_object(
+                            properties=properties,
+                            vector=vector
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
+                            f"{type(e).__name__}: {str(e)[:200]}"
+                        )
+                        raise
+        else:
+            # Dynamic batch for single-vector (faster)
+            with collection.batch.dynamic() as batch:
+                pbar = tqdm(enumerate(chunks), total=len(chunks), desc=f"Storing in {collection_name}", unit="chunk")
+                for idx, chunk in pbar:
+                    properties = {
+                        "content": chunk.get("content", ""),
+                        "title": chunk.get("title", ""),
+                        "url": chunk.get("url", ""),
+                        "chunk_index": chunk.get("chunk_index", 0),
+                        "total_chunks": chunk.get("total_chunks", 0),
+                        "source": chunk.get("source", "wikipedia"),
+                        "language": chunk.get("language", "en"),
+                    }
+                    
+                    vector = chunk.get("embedding", [])
+                    
+                    try:
+                        batch.add_object(
+                            properties=properties,
+                            vector=vector
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
+                            f"{type(e).__name__}: {str(e)[:200]}"
+                        )
+                        raise
         
         logger.info(f"Stored {len(chunks)} chunks in {collection_name}")
     
-    def store_chunks_in_all_collections(self, chunks: List[Dict]) -> None:
+    def store_chunks_in_all_collections(
+        self, 
+        chunks: List[Dict], 
+        exclude_strategies: Optional[List[str]] = None
+    ) -> None:
         """
         Store same chunks in all collections for fair comparison.
         
         Args:
             chunks: List of chunk dictionaries with embeddings
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
         """
-        logger.info(f"Storing {len(chunks)} chunks in all collections")
+        exclude_strategies = exclude_strategies or []
+        configs_to_store = {
+            k: v for k, v in self.CONFIGS.items() 
+            if k not in exclude_strategies
+        }
         
-        for strategy_name, config in self.CONFIGS.items():
+        logger.info(f"Storing {len(chunks)} chunks in {len(configs_to_store)} collections")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name, config in configs_to_store.items():
             self.store_chunks_in_collection(config.name, chunks)
         
-        logger.info("All collections populated with identical data")
+        logger.info("All collections populated.")
     
     def delete_collection(self, strategy_name: str) -> None:
         """
@@ -275,11 +360,23 @@ class CollectionManager:
             self.client.collections.delete(config.name)
             logger.info(f"Deleted collection: {config.name}")
     
-    def delete_all_collections(self) -> None:
-        """Delete all predefined collections."""
-        logger.info("Deleting all collections")
+    def delete_all_collections(self, exclude_strategies: Optional[List[str]] = None) -> None:
+        """Delete all predefined collections.
         
-        for strategy_name in self.CONFIGS.keys():
+        Args:
+            exclude_strategies: List of strategy names to skip (e.g., ["ColBERTMultiVector"])
+        """
+        exclude_strategies = exclude_strategies or []
+        strategies_to_delete = [
+            k for k in self.CONFIGS.keys() 
+            if k not in exclude_strategies
+        ]
+        
+        logger.info(f"Deleting {len(strategies_to_delete)} collections")
+        if exclude_strategies:
+            logger.info(f"Excluding strategies: {exclude_strategies}")
+        
+        for strategy_name in strategies_to_delete:
             try:
                 self.delete_collection(strategy_name)
             except Exception as e:
