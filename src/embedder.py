@@ -245,9 +245,6 @@ class OllamaEmbedder(SingleVectorEmbedder):
         return self._embeddings.embed_documents(texts)
 
 
-EmbeddingGenerator = OllamaEmbedder
-
-
 class JinaAIEmbedder(MultiVectorEmbedder):
     """
     Multi-vector ColBERT embeddings using Jina AI API.
