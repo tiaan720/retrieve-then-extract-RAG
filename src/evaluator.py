@@ -1,10 +1,12 @@
 import time
 import statistics
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from dataclasses import dataclass, asdict
 import json
+
 from src.logger import logger
 from src.retrieval_strategies import RetrievalStrategy, RetrievalMetrics
+from src.embedder import BaseEmbedder, SingleVectorEmbedder, MultiVectorEmbedder
 
 
 @dataclass
@@ -12,11 +14,11 @@ class StrategyBenchmark:
     """Benchmark results for a single strategy."""
     strategy_name: str
     
-    # Speed (simplified)
+    # Speed
     avg_latency_ms: float
     
     # Accuracy metrics
-    recall_at_5: Optional[float] = None  # % of baseline results found
+    recall_at_5: Optional[float] = None
     recall_at_10: Optional[float] = None
     
     # Count
@@ -24,21 +26,73 @@ class StrategyBenchmark:
 
 
 class RetrievalEvaluator:
-    """Evaluates and compares retrieval strategies using real ground truth."""
+    """
+    Evaluates and compares retrieval strategies.
     
-    def __init__(self, embedder, ground_truth: Optional[Dict[str, List[str]]] = None, colbert_embedder=None):
+    Automatically selects the appropriate embedder based on each strategy's
+    requirements (single-vector vs multi-vector).
+    
+    Example usage:
+        # Single-vector strategies only
+        evaluator = RetrievalEvaluator(embedder, ground_truth=ground_truth)
+        
+        # Both single and multi-vector strategies
+        evaluator = RetrievalEvaluator(
+            embedder,
+            ground_truth=ground_truth,
+            multi_vector_embedder=colbert_embedder
+        )
+    """
+    
+    def __init__(
+        self, 
+        embedder: BaseEmbedder,
+        ground_truth: Optional[Dict[str, List[str]]] = None,
+        multi_vector_embedder: Optional[BaseEmbedder] = None
+    ):
         """
         Initialize evaluator.
         
         Args:
-            embedder: Embedding generator for queries (Ollama for standard strategies)
+            embedder: Primary embedder for single-vector strategies
             ground_truth: Dict mapping query -> list of expected document titles
-            colbert_embedder: Optional ColBERT embedder for multi-vector strategies
+            multi_vector_embedder: Optional embedder for multi-vector strategies
+                                   (only needed if benchmarking ColBERT strategies)
         """
-        self.embedder = embedder
-        self.colbert_embedder = colbert_embedder
-        self.results = {}
+        self._embedders: Dict[str, BaseEmbedder] = {
+            "single": embedder
+        }
+        
+        if multi_vector_embedder is not None:
+            self._embedders["multi"] = multi_vector_embedder
+        
+        self.results: Dict[str, StrategyBenchmark] = {}
         self.ground_truth = ground_truth or {}
+    
+    def _get_embedder_for_strategy(self, strategy: RetrievalStrategy) -> BaseEmbedder:
+        """
+        Get the appropriate embedder for a strategy.
+        
+        Args:
+            strategy: The retrieval strategy
+            
+        Returns:
+            Appropriate embedder based on strategy.embedder_type
+            
+        Raises:
+            ValueError: If required embedder type is not available
+        """
+        embedder_type = getattr(strategy, 'embedder_type', 'single')
+        
+        if embedder_type not in self._embedders:
+            available = list(self._embedders.keys())
+            raise ValueError(
+                f"Strategy '{strategy.name}' requires '{embedder_type}' embedder, "
+                f"but only {available} embedder(s) provided. "
+                f"Pass multi_vector_embedder to RetrievalEvaluator to use this strategy."
+            )
+        
+        return self._embedders[embedder_type]
     
     def benchmark_strategy(
         self,
@@ -61,17 +115,15 @@ class RetrievalEvaluator:
         """
         logger.info(f"Benchmarking: {strategy.name}")
         
-        # Determine which embedder to use
-        is_colbert = "ColBERT" in strategy.name
-        active_embedder = self.colbert_embedder if is_colbert and self.colbert_embedder else self.embedder
-        
-        if is_colbert and not self.colbert_embedder:
-            logger.warning(f"ColBERT embedder not provided for {strategy.name}, using default embedder")
+        # Auto-select embedder based on strategy requirements
+        embedder = self._get_embedder_for_strategy(strategy)
+        embedder_type = getattr(strategy, 'embedder_type', 'single')
+        logger.debug(f"  Using {embedder.__class__.__name__} ({embedder_type})")
         
         # Warmup
         if warmup_queries > 0:
             for i in range(min(warmup_queries, len(queries))):
-                query_vec = active_embedder.embed_text(queries[i])
+                query_vec = embedder.embed_text(queries[i])
                 strategy.search(query_vec, queries[i], limit=limit)
         
         # Collect metrics
@@ -79,40 +131,16 @@ class RetrievalEvaluator:
         all_results = {}
         
         for query in queries:
-            # Measure total time (embedding + search)
             start_time = time.time()
-            query_vec = active_embedder.embed_text(query)
+            query_vec = embedder.embed_text(query)
             results, _ = strategy.search(query_vec, query, limit=10)
             total_time = (time.time() - start_time) * 1000
             
             latencies.append(total_time)
-            # Store titles for ground truth comparison
             all_results[query] = [r["title"] for r in results]
         
-        # Calculate accuracy using real ground truth
-        recall_at_5 = None
-        recall_at_10 = None
-        
-        if self.ground_truth:
-            recall_5_scores = []
-            recall_10_scores = []
-            
-            for query in queries:
-                if query in self.ground_truth and query in all_results:
-                    expected_titles = set(self.ground_truth[query])
-                    retrieved_5 = set(all_results[query][:5])
-                    retrieved_10 = set(all_results[query][:10])
-                    
-                    # Recall = did we find ANY of the expected documents in results?
-                    found_in_5 = 1.0 if expected_titles & retrieved_5 else 0.0
-                    found_in_10 = 1.0 if expected_titles & retrieved_10 else 0.0
-                    
-                    recall_5_scores.append(found_in_5)
-                    recall_10_scores.append(found_in_10)
-            
-            if recall_5_scores:
-                recall_at_5 = statistics.mean(recall_5_scores)
-                recall_at_10 = statistics.mean(recall_10_scores)
+        # Calculate accuracy using ground truth
+        recall_at_5, recall_at_10 = self._calculate_recall(queries, all_results)
         
         benchmark = StrategyBenchmark(
             strategy_name=strategy.name,
@@ -129,6 +157,36 @@ class RetrievalEvaluator:
         
         return benchmark
     
+    def _calculate_recall(
+        self, 
+        queries: List[str], 
+        all_results: Dict[str, List[str]]
+    ) -> tuple[Optional[float], Optional[float]]:
+        """Calculate recall@5 and recall@10 against ground truth."""
+        if not self.ground_truth:
+            return None, None
+        
+        recall_5_scores = []
+        recall_10_scores = []
+        
+        for query in queries:
+            if query in self.ground_truth and query in all_results:
+                expected_titles = set(self.ground_truth[query])
+                retrieved_5 = set(all_results[query][:5])
+                retrieved_10 = set(all_results[query][:10])
+                
+                # Binary recall: did we find ANY expected document?
+                found_in_5 = 1.0 if expected_titles & retrieved_5 else 0.0
+                found_in_10 = 1.0 if expected_titles & retrieved_10 else 0.0
+                
+                recall_5_scores.append(found_in_5)
+                recall_10_scores.append(found_in_10)
+        
+        if not recall_5_scores:
+            return None, None
+        
+        return statistics.mean(recall_5_scores), statistics.mean(recall_10_scores)
+    
     def benchmark_all_strategies(
         self,
         strategies: List[RetrievalStrategy],
@@ -137,7 +195,9 @@ class RetrievalEvaluator:
         warmup_queries: int = 2
     ) -> Dict[str, StrategyBenchmark]:
         """
-        Benchmark multiple strategies using real ground truth.
+        Benchmark multiple strategies.
+        
+        Automatically skips strategies that require embedders not provided.
         
         Args:
             strategies: List of strategies to benchmark
@@ -155,13 +215,18 @@ class RetrievalEvaluator:
         else:
             logger.warning("No ground truth provided - accuracy metrics will be N/A")
         
-        # Benchmark all strategies
+        # Log available embedders
+        logger.info(f"Available embedders: {list(self._embedders.keys())}")
+        
         for strategy in strategies:
-            self.benchmark_strategy(strategy, queries, limit, warmup_queries)
+            try:
+                self.benchmark_strategy(strategy, queries, limit, warmup_queries)
+            except ValueError as e:
+                logger.warning(f"Skipping {strategy.name}: {e}")
         
         return self.results
     
-    def print_comparison_table(self):
+    def print_comparison_table(self) -> None:
         """Log comparison table of all benchmarked strategies."""
         if not self.results:
             logger.warning("No results to display")
@@ -174,7 +239,6 @@ class RetrievalEvaluator:
         logger.info(f"{'Strategy':<25} {'Latency (ms)':<15} {'Recall@5':<12} {'Recall@10':<12}")
         logger.info("-" * 70)
         
-        # Sort by average latency
         sorted_results = sorted(self.results.items(), key=lambda x: x[1].avg_latency_ms)
         
         for name, benchmark in sorted_results:
@@ -193,7 +257,7 @@ class RetrievalEvaluator:
             best_accuracy = max(with_accuracy, key=lambda x: x[1].recall_at_5)
             logger.info(f"Best accuracy: {best_accuracy[0]} ({best_accuracy[1].recall_at_5:.1%} recall@5)")
     
-    def save_results(self, filename: str = "benchmark_results.json"):
+    def save_results(self, filename: str = "benchmark_results.json") -> None:
         """Save benchmark results to JSON file."""
         output = {
             name: asdict(benchmark)

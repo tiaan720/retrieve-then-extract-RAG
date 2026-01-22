@@ -119,7 +119,6 @@ class CollectionManager:
         logger.info(f"  Binary quantization: {config.enable_binary_quantization}")
         logger.info(f"  Reranker: {config.enable_reranker}")
         
-        # Configure vector index
         if config.enable_binary_quantization:
             hnsw_config = Configure.VectorIndex.hnsw(
                 distance_metric=VectorDistances.COSINE,
@@ -136,7 +135,6 @@ class CollectionManager:
                 vector_cache_max_objects=10000,
             )
         
-        # Configure reranker if needed
         reranker_config = None
         if config.enable_reranker:
             reranker_config = Configure.Reranker.transformers()
@@ -144,16 +142,12 @@ class CollectionManager:
         # Determine if this is a multi-vector collection
         is_multi_vector = "ColBERT" in config.name
         
-        # Create collection with appropriate vector config
         if is_multi_vector:
-            # Multi-vector configuration (for ColBERT)
-            # Use named vector for better practices
             vector_config = Configure.MultiVectors.self_provided(
                 name="colbert",  # Named vector
                 vector_index_config=hnsw_config,
             )
         else:
-            # Single vector configuration (standard)
             vector_config = Configure.Vectors.self_provided(
                 vector_index_config=hnsw_config,
             )
@@ -252,9 +246,7 @@ class CollectionManager:
         
         # Use context manager with appropriate settings
         if is_multi_vector:
-            # Fixed batch size for multi-vector to avoid timeouts
-            # Multi-vector embeddings are much larger, so use smaller batches
-            with collection.batch.fixed_size(batch_size=10) as batch:
+            with collection.batch.fixed_size(batch_size=20) as batch:
                 pbar = tqdm(enumerate(chunks), total=len(chunks), desc=f"Storing in {collection_name}", unit="chunk")
                 for idx, chunk in pbar:
                     properties = {
@@ -269,7 +261,7 @@ class CollectionManager:
                     
                     # Multi-vector embeddings - wrap in dictionary with named vector
                     multi_vec = chunk.get("multi_vector_embedding", [])
-                    vector = {"colbert": multi_vec}  # Named vector requires dictionary
+                    vector = {"colbert": multi_vec} 
                     
                     try:
                         batch.add_object(
@@ -277,7 +269,6 @@ class CollectionManager:
                             vector=vector
                         )
                     except Exception as e:
-                        # Log error without printing embedding values
                         logger.error(
                             f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
                             f"{type(e).__name__}: {str(e)[:200]}"
@@ -306,7 +297,6 @@ class CollectionManager:
                             vector=vector
                         )
                     except Exception as e:
-                        # Log error without printing embedding values
                         logger.error(
                             f"Failed to add chunk {idx} (title: {properties.get('title', 'N/A')}): "
                             f"{type(e).__name__}: {str(e)[:200]}"
@@ -327,7 +317,7 @@ class CollectionManager:
         for strategy_name, config in self.CONFIGS.items():
             self.store_chunks_in_collection(config.name, chunks)
         
-        logger.info("All collections populated with identical data")
+        logger.info("All collections populated.")
     
     def delete_collection(self, strategy_name: str) -> None:
         """

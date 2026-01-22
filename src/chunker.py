@@ -32,7 +32,6 @@ class DocumentChunker:
         if not text:
             return []
         
-        # Validate configuration to prevent infinite loops
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError(f"chunk_overlap ({self.chunk_overlap}) must be less than chunk_size ({self.chunk_size})")
         
@@ -60,7 +59,6 @@ class DocumentChunker:
             # Move to next chunk with overlap
             next_start = end - self.chunk_overlap
             
-            # Ensure we're making progress to avoid infinite loops
             if next_start <= start:
                 next_start = start + 1
             

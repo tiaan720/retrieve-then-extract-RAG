@@ -19,7 +19,16 @@ class RetrievalMetrics:
 
 
 class RetrievalStrategy(ABC):
-    """Base class for retrieval strategies."""
+    """Base class for retrieval strategies.
+    
+    Attributes:
+        name: Strategy name for identification
+        collection: Weaviate collection to query
+        embedder_type: Type of embedder needed ('single' or 'multi')
+    """
+    
+    # Override in subclasses that need multi-vector embeddings
+    embedder_type: str = "single"
     
     def __init__(self, name: str, collection):
         """
@@ -340,6 +349,9 @@ class ColBERTMultiVector(RetrievalStrategy):
     late interaction - comparing individual parts of texts rather than whole
     document representations.
     """
+    
+    # Requires multi-vector embeddings (ColBERT)
+    embedder_type: str = "multi"
     
     def __init__(self, collection):
         super().__init__("ColBERTMultiVector", collection)

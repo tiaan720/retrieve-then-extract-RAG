@@ -3,7 +3,7 @@ from src.config import Config
 from src.document_fetcher import DocumentFetcher
 from src.text_extractor import TextExtractor
 from src.chunker import DocumentChunker
-from src.embedder import EmbeddingGenerator, HuggingFaceEmbedder
+from src.embedder import create_embedder
 from src.collection_manager import CollectionManager
 from src.retrieval_strategies import (
     StandardHNSW,
@@ -18,9 +18,87 @@ from src.ground_truth import get_ground_truth_queries, get_ground_truth_map
 from src.logger import logger
 
 
+
+ENABLE_MULTI_VECTOR = False
+
+# Topics to fetch from Wikipedia
+TOPICS = [
+    # Core AI/ML topics
+    "Artificial intelligence",
+    "Machine learning",
+    "Natural language processing",
+    "Deep learning",
+    "Neural network",
+    "Computer vision",
+    "Reinforcement learning",
+    "Transformer (deep learning architecture)",
+    "Convolutional neural network",
+    "Recurrent neural network",
+    "Generative adversarial network",
+    "Long short-term memory",
+    "Backpropagation",
+    "Gradient descent",
+    "Support vector machine",
+    "Decision tree",
+    "Random forest",
+    "K-nearest neighbors algorithm",
+    "Naive Bayes classifier",
+    "Logistic regression",
+    "Linear regression",
+    "Word embedding",
+    "Word2vec",
+    "BERT (language model)",
+    "GPT-4",
+    "Attention (machine learning)",
+    "Sequence-to-sequence",
+    "Named entity recognition",
+    "Sentiment analysis",
+    "Text mining",
+    "Algorithm",
+    "Data structure",
+    "Database",
+    "Distributed computing",
+    "Cloud computing",
+    "Computer programming",
+    "Software engineering",
+    "Operating system",
+    "Statistics",
+    "Probability theory",
+    "Linear algebra",
+    "Calculus",
+    "Optimization (mathematics)",
+    "Data science",
+    "Big data",
+    "Data mining",
+    "Feature engineering",
+    "Dimensionality reduction",
+    "Principal component analysis",
+    "Clustering",
+    "Classification",
+]
+
+def build_single_vector_strategies(collection_manager):
+    """Build list of single-vector retrieval strategies."""
+    return [
+        StandardHNSW(collection_manager.get_collection("StandardHNSW")),
+        BinaryQuantized(collection_manager.get_collection("BinaryQuantized")),
+        HybridSearch(collection_manager.get_collection("HybridSearch"), alpha=0.7),
+        CrossEncoderRerank(collection_manager.get_collection("CrossEncoderRerank"), rerank_multiplier=4),
+        BinaryInt8Staged(collection_manager.get_collection("BinaryInt8Staged"), rescore_multiplier=4),
+    ]
+
+
+def build_multi_vector_strategies(collection_manager):
+    """Build list of multi-vector (ColBERT) retrieval strategies."""
+    return [
+        ColBERTMultiVector(collection_manager.get_collection("ColBERTMultiVector")),
+    ]
+
+
 def main():
     """Run strategy comparison."""
     
+
     config = Config()
     fetcher = DocumentFetcher()
     extractor = TextExtractor()
@@ -28,10 +106,17 @@ def main():
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP
     )
-    embedder = EmbeddingGenerator(
-        base_url=config.OLLAMA_BASE_URL,
-        model=config.OLLAMA_MODEL
-    )
+    
+    embedder = create_embedder("single", config=config)
+    
+
+    colbert_embedder = None
+    if ENABLE_MULTI_VECTOR:
+        # Option A: Local HuggingFace model (no API key needed)
+        colbert_embedder = create_embedder("huggingface", config=config)
+        
+        # Option B: Jina AI API (requires API key in config/env)
+        # colbert_embedder = create_embedder("jina", config=config)
 
     from src.weaviate_client import WeaviateClient
     temp_client = WeaviateClient(
@@ -48,68 +133,12 @@ def main():
             client=client,
             vector_dimensions=config.EMBEDDING_DIMENSIONS
         )
-
-
+        
         logger.info("Deleting existing collections for clean benchmark run...")
         collection_manager.delete_all_collections()
-        
         collection_manager.create_all_collections()
- 
-        topics = [
-            # Core AI/ML topics (original)
-            "Artificial intelligence",
-            "Machine learning",
-            "Natural language processing",
-            "Deep learning",
-            "Neural network",
-            "Computer vision",
-            "Reinforcement learning",
-            "Transformer (deep learning architecture)",
-            "Convolutional neural network",
-            "Recurrent neural network",
-            "Generative adversarial network",
-            "Long short-term memory",
-            "Backpropagation",
-            "Gradient descent",
-            "Support vector machine",
-            "Decision tree",
-            "Random forest",
-            "K-nearest neighbors algorithm",
-            "Naive Bayes classifier",
-            "Logistic regression",
-            "Linear regression",
-            "Word embedding",
-            "Word2vec",
-            "BERT (language model)",
-            "GPT-4",
-            "Attention (machine learning)",
-            "Sequence-to-sequence",
-            "Named entity recognition",
-            "Sentiment analysis",
-            "Text mining",
-            "Algorithm",
-            "Data structure",
-            "Database",
-            "Distributed computing",
-            "Cloud computing",
-            "Computer programming",
-            "Software engineering",
-            "Operating system",
-            "Statistics",
-            "Probability theory",
-            "Linear algebra",
-            "Calculus",
-            "Optimization (mathematics)",
-            "Data science",
-            "Big data",
-            "Data mining",
-            "Feature engineering",
-            "Dimensionality reduction",
-            "Principal component analysis",
-            "Clustering",
-            "Classification",
-        ]
-        docs = fetcher.fetch_wikipedia_articles(topics, max_docs=2)
+        
+        docs = fetcher.fetch_wikipedia_articles(TOPICS, max_docs=2)
         logger.info(f"Fetched {len(docs)} documents")
         
         cleaned_docs = extractor.extract_from_documents(docs)
@@ -117,45 +146,38 @@ def main():
         
         chunks = chunker.chunk_documents(cleaned_docs)
         logger.info(f"Created {len(chunks)} chunks")
-   
+
         embedded_chunks = embedder.embed_chunks(chunks)
-        logger.info(f"Generated {len(embedded_chunks)} Ollama embeddings")
+        logger.info(f"Generated {len(embedded_chunks)} single-vector embeddings")
         
-        # colbert_embedder = HuggingFaceEmbedder(model_name="colbert-ir/colbertv2.0")
-        # colbert_chunks = colbert_embedder.embed_chunks(chunks, batch_size=4)
-        # logger.info(f"Generated {len(colbert_chunks)} ColBERT embeddings")
+        if ENABLE_MULTI_VECTOR and colbert_embedder:
+            colbert_chunks = colbert_embedder.embed_chunks(chunks, batch_size=4)
+            logger.info(f"Generated {len(colbert_chunks)} multi-vector embeddings")
+            
+            # Merge both embedding types into chunks
+            for i, chunk in enumerate(embedded_chunks):
+                chunk['multi_vector_embedding'] = colbert_chunks[i]['multi_vector_embedding']
+            logger.info("Merged single and multi-vector embeddings")
         
-        # # Jina AI Embedder (API-based - requires API key, using jina-colbert-v2 model)
-        # from src.embedder import JinaAIEmbedder
-        # colbert_embedder = JinaAIEmbedder(api_key=config.JINAAI_APIKEY, model='jina-colbert-v2')
-        # colbert_chunks = colbert_embedder.embed_chunks(chunks)
-        
-        # # Merge both embedding types into a single chunk list
-        # for i, chunk in enumerate(embedded_chunks):
-        #     chunk['multi_vector_embedding'] = colbert_chunks[i]['multi_vector_embedding']
-        # logger.info(f"Combined embeddings: each chunk has both single and multi-vector embeddings")
-        
+
         collection_manager.store_chunks_in_all_collections(embedded_chunks)
         
-        strategies = [
-            StandardHNSW(collection_manager.get_collection("StandardHNSW")),
-            BinaryQuantized(collection_manager.get_collection("BinaryQuantized")),
-            HybridSearch(collection_manager.get_collection("HybridSearch"), alpha=0.7),
-            CrossEncoderRerank(collection_manager.get_collection("CrossEncoderRerank"), rerank_multiplier=4),
-            BinaryInt8Staged(collection_manager.get_collection("BinaryInt8Staged"), rescore_multiplier=4),
-            # ColBERTMultiVector(collection_manager.get_collection("ColBERTMultiVector")),
-        ]
+        strategies = build_single_vector_strategies(collection_manager)
+        
+        if ENABLE_MULTI_VECTOR:
+            strategies.extend(build_multi_vector_strategies(collection_manager))
+        
         logger.info(f"Initialized {len(strategies)} strategies")
         
         test_queries = get_ground_truth_queries()
         ground_truth = get_ground_truth_map()
         logger.info(f"Loaded {len(test_queries)} queries with ground truth annotations")
-     
-        logger.info("\nBenchmarking strategies.")
+        
+        logger.info("\nBenchmarking strategies...")
         evaluator = RetrievalEvaluator(
-            embedder, 
+            embedder,
             ground_truth=ground_truth,
-            # colbert_embedder=colbert_embedder
+            multi_vector_embedder=colbert_embedder  
         )
         
         evaluator.benchmark_all_strategies(
@@ -166,10 +188,7 @@ def main():
         )
         
         evaluator.print_comparison_table()
-        
         evaluator.save_results("benchmark_results.json")
-        
- 
         
     except Exception as e:
         logger.error(f"Error during comparison: {e}")

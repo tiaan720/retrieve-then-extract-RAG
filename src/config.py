@@ -17,8 +17,12 @@ class Config(BaseSettings):
     
     # Jina AI settings (for ColBERT multi-vector embeddings)
     JINAAI_APIKEY: str = Field(default="", alias="JINAAI_APIKEY")
+    JINA_MODEL: str = Field(default="jina-colbert-v2", alias="JINA_MODEL")
     
-    # Chunking settings
+    # HuggingFace settings (for local ColBERT embeddings)
+    COLBERT_MODEL: str = Field(default="colbert-ir/colbertv2.0", alias="COLBERT_MODEL")
+    HUGGINGFACE_MAX_LENGTH: int = Field(default=512, alias="HUGGINGFACE_MAX_LENGTH")
+    
     CHUNK_SIZE: int = Field(default=500, alias="CHUNK_SIZE")
     CHUNK_OVERLAP: int = Field(default=50, alias="CHUNK_OVERLAP")
     

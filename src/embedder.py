@@ -1,23 +1,63 @@
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Type, Dict, Any
 from abc import ABC, abstractmethod
-from langchain_ollama import OllamaEmbeddings
+from enum import Enum
 import requests
 import os
-from tqdm import tqdm
-from src.logger import logger
 
-# Optional imports for local ColBERT
+from tqdm import tqdm
+from langchain_ollama import OllamaEmbeddings
+
+from src.logger import logger
+from src.config import Config
+
 try:
     import torch
     from transformers import AutoTokenizer, AutoModel
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    logger.warning("torch and/or transformers not available - HuggingFaceEmbedder will not work")
 
+
+def detect_device() -> str:
+    """
+    Auto-detect the best available device for PyTorch.
+    
+    Returns:
+        Device string: 'cuda', 'mps', or 'cpu'
+    """
+    if not TORCH_AVAILABLE:
+        return "cpu"
+    
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 class BaseEmbedder(ABC):
-    """Base class for embedding generators with shared functionality."""
+    """
+    Abstract base class for all embedding generators.
+    
+    Provides shared functionality for embedding document chunks.
+    Subclasses must implement embed_text() and embed_texts() methods.
+    
+    Attributes:
+        model_name: Name/identifier of the embedding model
+        embedding_key: Key used to store embeddings in chunk dictionaries
+    """
+    
+    model_name: str
+    embedding_key: str = "embedding"
+    
+    @abstractmethod
+    def _validate_configuration(self) -> None:
+        """Validate configuration and credentials. Raise on failure."""
+        pass
+    
+    @abstractmethod
+    def _initialize_backend(self) -> None:
+        """Initialize the embedding backend (API client, model, etc.)."""
+        pass
     
     @abstractmethod
     def embed_text(self, text: str) -> Union[List[float], List[List[float]]]:
@@ -32,26 +72,22 @@ class BaseEmbedder(ABC):
     def embed_chunks(
         self, 
         chunks: List[dict], 
-        embedding_key: str = 'embedding',
         batch_size: Optional[int] = None
     ) -> List[dict]:
         """
-        Generate embeddings for document chunks (shared implementation).
+        Generate embeddings for document chunks.
         
         Args:
             chunks: List of chunk dictionaries with 'content' key
-            embedding_key: Key name to store embeddings in chunks
             batch_size: If provided, process in batches of this size
             
         Returns:
             List of chunk dictionaries with added embedding key
         """
-        logger.info(f"Generating embeddings for {len(chunks)} chunks")
+        logger.info(f"Generating embeddings for {len(chunks)} chunks using {self.__class__.__name__}")
         
-        # Extract text content
         texts = [chunk['content'] for chunk in chunks]
         
-        # Generate embeddings (with optional batching)
         if batch_size:
             embeddings = []
             pbar = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings", unit="batch")
@@ -63,195 +99,278 @@ class BaseEmbedder(ABC):
         else:
             embeddings = self.embed_texts(texts)
         
-        # Add embeddings to chunks
         embedded_chunks = []
         for chunk, embedding in zip(chunks, embeddings):
             chunk_with_embedding = chunk.copy()
-            chunk_with_embedding[embedding_key] = embedding
+            chunk_with_embedding[self.embedding_key] = embedding
             embedded_chunks.append(chunk_with_embedding)
         
         logger.info(f"Successfully generated {len(embedded_chunks)} embeddings")
-        
-        # Log shape info for multi-vector embeddings
-        if isinstance(embeddings[0], list) and isinstance(embeddings[0][0], list):
-            logger.info(f"Sample embedding shape: {len(embeddings[0])} tokens × {len(embeddings[0][0])} dimensions")
+        self._log_embedding_stats(embeddings)
         
         return embedded_chunks
-
-
-class JinaAIEmbedder(BaseEmbedder):
-    """Generates multi-vector embeddings using Jina AI API.
     
-    Supports various Jina AI embedding models including:
-    - jina-colbert-v2 (multi-vector ColBERT embeddings)
-    - Other Jina AI embedding models
+    def _log_embedding_stats(self, embeddings: List) -> None:
+        """Log statistics about generated embeddings. Override in subclasses for custom logging."""
+        pass
+
+
+class SingleVectorEmbedder(BaseEmbedder):
+    """
+    Base class for embedders that produce single dense vectors.
+    
+    Single-vector embeddings represent an entire text as one fixed-dimension vector.
+    Used for traditional dense retrieval with cosine similarity.
+    
+    Returns: List[float] for single text, List[List[float]] for multiple texts
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "jina-colbert-v2"):
+    embedding_key: str = "embedding"
+    
+    @abstractmethod
+    def embed_text(self, text: str) -> List[float]:
+        """Generate single-vector embedding for a text."""
+        pass
+    
+    @abstractmethod
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        """Generate single-vector embeddings for multiple texts."""
+        pass
+
+
+class MultiVectorEmbedder(BaseEmbedder):
+    """
+    Base class for embedders that produce multi-vector (token-level) embeddings.
+    
+    Multi-vector embeddings produce one vector per token, enabling late interaction
+    scoring (e.g., ColBERT's MaxSim). Better for fine-grained semantic matching.
+    
+    Returns: List[List[float]] for single text, List[List[List[float]]] for multiple texts
+    """
+    
+    embedding_key: str = "multi_vector_embedding"
+    
+    @abstractmethod
+    def embed_text(self, text: str) -> List[List[float]]:
+        """Generate multi-vector embedding for a text (num_tokens × embedding_dim)."""
+        pass
+    
+    @abstractmethod
+    def embed_texts(self, texts: List[str]) -> List[List[List[float]]]:
+        """Generate multi-vector embeddings for multiple texts."""
+        pass
+    
+    def _log_embedding_stats(self, embeddings: List[List[List[float]]]) -> None:
+        """Log multi-vector specific statistics."""
+        if embeddings:
+            avg_tokens = sum(len(emb) for emb in embeddings) / len(embeddings)
+            logger.info(f"Average tokens per chunk: {avg_tokens:.1f}")
+            if embeddings[0]:
+                logger.info(f"Embedding dimensions: {len(embeddings[0][0])}")
+
+
+class OllamaEmbedder(SingleVectorEmbedder):
+    """
+    Single-vector embeddings using Ollama via LangChain.
+    
+    Connects to a local Ollama instance and uses models like snowflake-arctic-embed.
+    """
+    
+    def __init__(
+        self, 
+        base_url: Optional[str] = None, 
+        model: Optional[str] = None,
+        config: Optional[Config] = None
+    ):
+        """
+        Initialize Ollama embedder.
+        
+        Args:
+            base_url: Ollama API URL (default: from config or http://localhost:11434)
+            model: Model name (default: from config or snowflake-arctic-embed:33m)
+            config: Configuration object (optional, creates new if not provided)
+        """
+        self._config = config or Config()
+        self.base_url = base_url or self._config.OLLAMA_BASE_URL
+        self.model_name = model or self._config.OLLAMA_MODEL
+        
+        self._validate_configuration()
+        self._initialize_backend()
+        
+        logger.info(f"Initialized {self.__class__.__name__} with model: {self.model_name}")
+    
+    def _validate_configuration(self) -> None:
+        """Validate Ollama is reachable and model is available."""
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response.raise_for_status()
+            
+            available_models = response.json().get('models', [])
+            model_names = [m.get('name', '') for m in available_models]
+            
+            model_base = self.model_name.split(':')[0]
+            model_found = self.model_name in model_names or any(
+                m == self.model_name or m.startswith(f"{model_base}:") 
+                for m in model_names
+            )
+            
+            if not model_found:
+                logger.warning(f"Model '{self.model_name}' not found in Ollama")
+                logger.warning(f"Available models: {', '.join(model_names) if model_names else 'none'}")
+                logger.warning(f"To install: ollama pull {self.model_name}")
+                logger.warning("Proceeding anyway - model will be pulled on first use")
+                
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(
+                f"Failed to connect to Ollama at {self.base_url}. "
+                f"Please ensure Ollama is running. Error: {e}"
+            )
+    
+    def _initialize_backend(self) -> None:
+        """Initialize LangChain Ollama embeddings."""
+        try:
+            self._embeddings = OllamaEmbeddings(
+                base_url=self.base_url,
+                model=self.model_name
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to initialize OllamaEmbeddings: {e}")
+    
+    def embed_text(self, text: str) -> List[float]:
+        """Generate embedding for a single text."""
+        return self._embeddings.embed_query(text)
+    
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for multiple texts."""
+        return self._embeddings.embed_documents(texts)
+
+
+EmbeddingGenerator = OllamaEmbedder
+
+
+class JinaAIEmbedder(MultiVectorEmbedder):
+    """
+    Multi-vector ColBERT embeddings using Jina AI API.
+    
+    Uses jina-colbert-v2 model for token-level embeddings with late interaction.
+    Requires a Jina AI API key.
+    """
+    
+    API_URL = "https://api.jina.ai/v1/embeddings"
+    
+    def __init__(
+        self, 
+        api_key: Optional[str] = None, 
+        model: Optional[str] = None,
+        config: Optional[Config] = None
+    ):
         """
         Initialize Jina AI embedder.
         
         Args:
-            api_key: Jina AI API key (if None, reads from JINAAI_APIKEY env var)
-            model: Model name (e.g., 'jina-colbert-v2' for ColBERT embeddings)
-            
-        Raises:
-            ValueError: If API key is not provided or found
+            api_key: Jina AI API key (default: from config/env JINAAI_APIKEY)
+            model: Model name (default: jina-colbert-v2)
+            config: Configuration object (optional)
         """
-        self.api_key = api_key or os.getenv("JINAAI_APIKEY")
-        if not self.api_key:
-            raise ValueError(
-                "Jina AI API key not found. Provide via api_key parameter "
-                "or set JINAAI_APIKEY environment variable."
-            )
+        self._config = config or Config()
+        self._api_key = api_key or self._config.JINAAI_APIKEY or os.getenv("JINAAI_APIKEY")
+        self.model_name = model or self._config.JINA_MODEL
         
-        self.model = model
-        self.api_url = "https://api.jina.ai/v1/embeddings"
-        logger.info(f"Initialized Jina AI embedder with model: {model}")
+        self._validate_configuration()
+        self._initialize_backend()
+        
+        logger.info(f"Initialized {self.__class__.__name__} with model: {self.model_name}")
+    
+    def _validate_configuration(self) -> None:
+        """Validate API key is present."""
+        if not self._api_key:
+            raise ValueError(
+                "Jina AI API key not found. Provide via api_key parameter, "
+                "config.JINAAI_APIKEY, or JINAAI_APIKEY environment variable."
+            )
+    
+    def _initialize_backend(self) -> None:
+        """No initialization needed for API-based embedder."""
+        pass
     
     def _make_api_request(self, input_data: Union[str, List[str]], timeout: int = 30) -> dict:
-        """
-        Make API request to Jina AI (internal helper method).
-        
-        Args:
-            input_data: Single text or list of texts to embed
-            timeout: Request timeout in seconds
-            
-        Returns:
-            API response as dictionary
-            
-        Raises:
-            requests.exceptions.RequestException: If API request fails
-        """
+        """Make API request to Jina AI."""
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
+            "Authorization": f"Bearer {self._api_key}"
         }
         
         payload = {
-            "model": self.model,
+            "model": self.model_name,
             "input": input_data,
             "embedding_type": "float"
         }
         
         try:
-            response = requests.post(self.api_url, json=payload, headers=headers, timeout=timeout)
+            response = requests.post(self.API_URL, json=payload, headers=headers, timeout=timeout)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get ColBERT embedding: {e}")
+            logger.error(f"Jina AI API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response body: {e.response.text[:500]}")
             raise
     
     def _extract_embedding(self, data_item: dict) -> List[List[float]]:
-        """
-        Extract embedding from API response data item (internal helper method).
-        
-        Args:
-            data_item: Single item from API response data array
-            
-        Returns:
-            Multi-vector embedding
-            
-        Raises:
-            ValueError: If embedding not found in expected format
-        """
+        """Extract embedding from API response item."""
         embedding = data_item.get('embeddings') or data_item.get('embedding')
         if embedding is None:
-            logger.error(f"Unexpected API response format: {list(data_item.keys())}")
             raise ValueError(f"Could not find embedding in response: {list(data_item.keys())}")
         return embedding
     
     def embed_text(self, text: str) -> List[List[float]]:
-        """
-        Generate ColBERT multi-vector embedding for a single text.
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Multi-vector embedding as list of lists (shape: [num_tokens, embedding_dim])
-        """
+        """Generate multi-vector embedding for a single text."""
         result = self._make_api_request(text)
         
         if 'data' not in result or not result['data']:
-            logger.error(f"Invalid API response: {result}")
             raise ValueError("Invalid API response format")
         
         return self._extract_embedding(result['data'][0])
     
     def embed_texts(self, texts: List[str]) -> List[List[List[float]]]:
-        """
-        Generate multi-vector embeddings for multiple texts.
-        
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            List of multi-vector embeddings
-        """
+        """Generate multi-vector embeddings for multiple texts."""
         result = self._make_api_request(texts, timeout=60)
         
         if 'data' not in result or not result['data']:
-            logger.error(f"Invalid API response: {result}")
             raise ValueError("Invalid API response format")
         
         return [self._extract_embedding(item) for item in result['data']]
     
-    def embed_chunks(self, chunks: List[dict]) -> List[dict]:
-        """
-        Generate multi-vector embeddings for document chunks.
-        
-        Args:
-            chunks: List of chunk dictionaries with 'content' key
-            
-        Returns:
-            List of chunk dictionaries with added 'multi_vector_embedding' key
-        """
-        # Use shared base implementation with batching and custom key name
-        return super().embed_chunks(
-            chunks, 
-            embedding_key='multi_vector_embedding',
-            batch_size=8  # Jina AI has rate limits
-        )
+    def embed_chunks(self, chunks: List[dict], batch_size: int = 8) -> List[dict]:
+        """Generate embeddings with rate-limit-friendly batching."""
+        return super().embed_chunks(chunks, batch_size=batch_size)
 
 
-class HuggingFaceEmbedder(BaseEmbedder):
+class HuggingFaceEmbedder(MultiVectorEmbedder):
     """
-    Generates multi-vector embeddings using local HuggingFace models.
+    Multi-vector ColBERT embeddings using local HuggingFace models.
     
-    This embedder loads a transformer model locally and generates token-level embeddings
-    for late interaction. No API keys required - everything runs locally.
-    
-    Works with any HuggingFace model that outputs token-level embeddings.
-    
-    Popular ColBERT models:
-    - colbert-ir/colbertv2.0 (16M+ downloads, classic ColBERT v2)
-    - mixedbread-ai/mxbai-edge-colbert-v0-17m (360K+ downloads, optimized for edge)
-    - mixedbread-ai/mxbai-edge-colbert-v0-32m (smaller, faster)
-    
-    Other models:
-    - Any transformer model from HuggingFace that outputs hidden states
+    Runs locally without API keys. Supports various ColBERT models:
+    - colbert-ir/colbertv2.0 (classic ColBERT v2)
+    - mixedbread-ai/mxbai-edge-colbert-v0-17m (optimized for edge)
     """
     
     def __init__(
-        self, 
-        model_name: str = "colbert-ir/colbertv2.0",
+        self,
+        model_name: Optional[str] = None,
         device: Optional[str] = None,
-        max_length: int = 512
+        max_length: Optional[int] = None,
+        config: Optional[Config] = None
     ):
         """
         Initialize HuggingFace embedder.
         
         Args:
-            model_name: HuggingFace model identifier (any transformer model)
+            model_name: HuggingFace model identifier (default: from config)
             device: Device to use ('cuda', 'mps', 'cpu', or None for auto-detect)
-            max_length: Maximum sequence length for tokenization
-            
-        Raises:
-            ImportError: If torch or transformers not installed
+            max_length: Maximum sequence length (default: from config or 512)
+            config: Configuration object (optional)
         """
         if not TORCH_AVAILABLE:
             raise ImportError(
@@ -259,50 +378,41 @@ class HuggingFaceEmbedder(BaseEmbedder):
                 "Install with: pip install torch transformers"
             )
         
-        self.model_name = model_name
-        self.max_length = max_length
+        self._config = config or Config()
+        self.model_name = model_name or self._config.COLBERT_MODEL
+        self.max_length = max_length or self._config.HUGGINGFACE_MAX_LENGTH
+        self.device = torch.device(device or detect_device())
         
-        # Auto-detect device if not specified
-        if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
+        self._validate_configuration()
+        self._initialize_backend()
         
-        self.device = torch.device(device)
-        logger.info(f"Using device: {self.device}")
-        
-        # Load tokenizer and model
-        logger.info(f"Loading HuggingFace model: {model_name}")
+        logger.info(f"Initialized {self.__class__.__name__} with model: {self.model_name} on {self.device}")
+    
+    def _validate_configuration(self) -> None:
+        """Validate torch is available."""
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch and transformers are required")
+    
+    def _initialize_backend(self) -> None:
+        """Load tokenizer and model."""
+        logger.info(f"Loading HuggingFace model: {self.model_name}")
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModel.from_pretrained(model_name)
-            self.model.to(self.device)
-            self.model.eval()  # Set to evaluation mode
-            logger.info(f"Successfully loaded {model_name}")
+            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self._model = AutoModel.from_pretrained(self.model_name)
+            self._model.to(self.device)
+            self._model.eval()
+            logger.info(f"Successfully loaded {self.model_name}")
         except Exception as e:
-            logger.error(f"Failed to load model {model_name}: {e}")
+            logger.error(f"Failed to load model {self.model_name}: {e}")
             raise
     
     def _encode(self, texts: Union[str, List[str]]) -> List[List[List[float]]]:
-        """
-        Internal method to encode texts into multi-vector embeddings.
-        
-        Args:
-            texts: Single text or list of texts
-            
-        Returns:
-            List of multi-vector embeddings (batch_size × num_tokens × embedding_dim)
-        """
-        # Ensure texts is a list
+        """Encode texts into multi-vector embeddings."""
         if isinstance(texts, str):
             texts = [texts]
         
         try:
-            # Tokenize
-            inputs = self.tokenizer(
+            inputs = self._tokenizer(
                 texts,
                 padding=True,
                 truncation=True,
@@ -310,226 +420,107 @@ class HuggingFaceEmbedder(BaseEmbedder):
                 return_tensors="pt"
             ).to(self.device)
             
-            # Generate embeddings
             with torch.no_grad():
-                outputs = self.model(**inputs)
-                # Get last hidden state (token-level embeddings)
+                outputs = self._model(**inputs)
                 embeddings = outputs.last_hidden_state
             
-            # Convert to list format and remove padding tokens
             result = []
             for i, embedding in enumerate(embeddings):
-                # Get attention mask to identify real tokens (not padding)
                 attention_mask = inputs['attention_mask'][i]
-                # Only keep embeddings for real tokens
                 real_tokens = embedding[attention_mask.bool()]
-                # Convert to nested list format
                 token_embeddings = real_tokens.cpu().tolist()
                 result.append(token_embeddings)
             
             return result
         except Exception as e:
-            logger.error(
-                f"Failed to encode {len(texts)} texts: {type(e).__name__}: {str(e)[:200]}"
-            )
+            logger.error(f"Failed to encode {len(texts)} texts: {type(e).__name__}: {str(e)[:200]}")
             raise
     
     def embed_text(self, text: str) -> List[List[float]]:
-        """
-        Generate ColBERT multi-vector embedding for a single text.
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Multi-vector embedding (num_tokens × embedding_dim)
-        """
-        embeddings = self._encode(text)
-        return embeddings[0]
+        """Generate multi-vector embedding for a single text."""
+        return self._encode(text)[0]
     
-    def embed_texts(self, texts: List[str], batch_size: int = 8) -> List[List[List[float]]]:
-        """
-        Generate ColBERT multi-vector embeddings for multiple texts.
-        
-        Args:
-            texts: List of texts to embed
-            batch_size: Number of texts to process at once
-            
-        Returns:
-            List of multi-vector embeddings
-        """
-        all_embeddings = []
-        
-        # Process in batches to avoid memory issues
-        pbar = tqdm(range(0, len(texts), batch_size), desc="Encoding texts", unit="batch")
-        for i in pbar:
-            batch = texts[i:i + batch_size]
-            batch_embeddings = self._encode(batch)
-            all_embeddings.extend(batch_embeddings)
-            pbar.set_postfix({"texts": f"{min(i + batch_size, len(texts))}/{len(texts)}"})
-        
-        return all_embeddings
+    def embed_texts(self, texts: List[str]) -> List[List[List[float]]]:
+        """Generate multi-vector embeddings for multiple texts."""
+        return self._encode(texts)
     
     def embed_chunks(self, chunks: List[dict], batch_size: int = 8) -> List[dict]:
-        """
-        Generate multi-vector embeddings for document chunks.
-        
-        Args:
-            chunks: List of chunk dictionaries with 'content' key
-            batch_size: Batch size for processing
-            
-        Returns:
-            List of chunk dictionaries with added 'multi_vector_embedding' key
-        """
-        logger.info(f"Generating HuggingFace embeddings for {len(chunks)} chunks")
-        
-        try:
-            # Extract text content
-            texts = [chunk['content'] for chunk in chunks]
-            
-            # Generate embeddings
-            embeddings = self.embed_texts(texts, batch_size=batch_size)
-            
-            # Add embeddings to chunks
-            embedded_chunks = []
-            for chunk, embedding in zip(chunks, embeddings):
-                chunk_with_embedding = chunk.copy()
-                chunk_with_embedding['multi_vector_embedding'] = embedding
-                embedded_chunks.append(chunk_with_embedding)
-            
-            logger.info(f"Successfully generated {len(embedded_chunks)} HuggingFace embeddings")
-            
-            # Log shape info
-            avg_tokens = sum(len(emb) for emb in embeddings) / len(embeddings)
-            logger.info(f"Average tokens per chunk: {avg_tokens:.1f}")
-            if embeddings and embeddings[0]:
-                logger.info(f"Embedding dimensions: {len(embeddings[0][0])}")
-            
-            return embedded_chunks
-        except Exception as e:
-            logger.error(
-                f"Failed to embed {len(chunks)} chunks: {type(e).__name__}: {str(e)[:200]}"
-            )
-            raise
+        """Generate embeddings with memory-friendly batching."""
+        return super().embed_chunks(chunks, batch_size=batch_size)
 
 
-class EmbeddingGenerator(BaseEmbedder):
-    """Generates embeddings using Ollama via LangChain."""
-    # ollama also has a jina model nabed: jina/jina-embeddings-v2-base-en (its not the colbert model)
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "snowflake-arctic-embed:33m"):
-        """
-        Initialize the embedding generator.
-        
-        Args:
-            base_url: Base URL for Ollama API
-            model: Name of the embedding model to use
-            
-        Raises:
-            ConnectionError: If Ollama service is not reachable
-            ValueError: If the specified model is not available
-        """
-        self.base_url = base_url
-        self.model = model
-        
-        try:
-            response = requests.get(f"{base_url}/api/tags", timeout=5)
-            response.raise_for_status()
-            
-            # Check if model is available
-            available_models = response.json().get('models', [])
-            model_names = [m.get('name', '') for m in available_models]
-            
-            model_base = model.split(':')[0]
-            model_found = model in model_names or any(
-                m == model or m.startswith(f"{model_base}:") 
-                for m in model_names
-            )
-            
-            if not model_found:
-                logger.warning(f"Model '{model}' not found in Ollama")
-                logger.warning(f"Available models: {', '.join(model_names) if model_names else 'none'}")
-                logger.warning(f"To install: ollama pull {model}")
-                logger.warning("Proceeding anyway - model will be pulled on first use")
-                
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(
-                f"Failed to connect to Ollama at {base_url}. "
-                f"Please ensure Ollama is running. Error: {e}"
-            )
-        
-        try:
-            self.embeddings = OllamaEmbeddings(
-                base_url=base_url,
-                model=model
-            )
-            logger.info(f"Initialized Ollama embeddings with model: {model}")
-        except Exception as e:
-            raise ValueError(f"Failed to initialize OllamaEmbeddings: {e}")
-    
-    def embed_text(self, text: str) -> List[float]:
-        """
-        Generate embedding for a single text.
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Embedding vector as a list of floats
-        """
-        return self.embeddings.embed_query(text)
-    
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """
-        Generate embeddings for multiple texts.
-        
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            List of embedding vectors
-        """
-        return self.embeddings.embed_documents(texts)
-    
-    def embed_chunks(self, chunks: List[dict]) -> List[dict]:
-        """
-        Generate embeddings for document chunks and add to chunk data.
-        
-        Args:
-            chunks: List of chunk dictionaries with 'content' key
-            
-        Returns:
-            List of chunk dictionaries with added 'embedding' key
-        """
-        # Use shared base implementation without batching
-        return super().embed_chunks(chunks, embedding_key='embedding')
+class EmbedderType(Enum):
+    """Supported embedder types."""
+    SINGLE = "single"
+    OLLAMA = "ollama"  # Alias for single
+    JINA = "jina"
+    HUGGINGFACE = "huggingface"
+    HF = "hf"  # Alias for huggingface
+
+
+# Registry mapping embedder types to their classes
+EMBEDDER_REGISTRY: Dict[str, Type[BaseEmbedder]] = {
+    "single": OllamaEmbedder,
+    "ollama": OllamaEmbedder,
+    "jina": JinaAIEmbedder,
+    "huggingface": HuggingFaceEmbedder,
+    "hf": HuggingFaceEmbedder,
+}
 
 
 def create_embedder(
     embedder_type: str = "single",
-    base_url: str = "http://localhost:11434",
-    model: str = "snowflake-arctic-embed:33m",
-    api_key: Optional[str] = None,
-    colbert_model: str = "colbert-ir/colbertv2.0"
-) -> Union[EmbeddingGenerator, JinaAIEmbedder, HuggingFaceEmbedder]:
+    config: Optional[Config] = None,
+    **kwargs
+) -> BaseEmbedder:
     """
-    Factory function to create appropriate embedder.
+    Factory function to create an embedder instance.
+    
+    Uses a registry pattern for easy extensibility. All embedders accept
+    an optional `config` parameter for centralized configuration.
     
     Args:
-        embedder_type: Type of embedder ("single", "jina", or "huggingface")
-        base_url: Base URL for Ollama (used for single embedder)
-        model: Model name
-        api_key: API key for Jina AI - only needed for "jina" type
-        colbert_model: HuggingFace model for local embeddings (default: mxbai-edge-colbert-v0-17m)
-        
+        embedder_type: Type of embedder ("single"/"ollama", "jina", "huggingface"/"hf")
+        config: Configuration object (optional, embedders create their own if not provided)
+        **kwargs: Additional arguments passed to the embedder constructor
+            - For single/ollama: base_url, model
+            - For jina: api_key, model
+            - For huggingface/hf: model_name, device, max_length
+    
     Returns:
-        EmbeddingGenerator, JinaAIEmbedder, or HuggingFaceEmbedder instance
+        Configured embedder instance
+    
+    Raises:
+        ValueError: If embedder_type is not recognized
+    
+    Examples:
+        >>> embedder = create_embedder("single")  # Uses config defaults
+        >>> embedder = create_embedder("jina", api_key="your-key")
+        >>> embedder = create_embedder("huggingface", model_name="colbert-ir/colbertv2.0")
     """
-    if embedder_type == "jina":
-        return JinaAIEmbedder(api_key=api_key, model="jina-colbert-v2")
-    elif embedder_type == "huggingface":
-        return HuggingFaceEmbedder(model_name=colbert_model)
-    elif embedder_type == "single":
-        return EmbeddingGenerator(base_url=base_url, model=model)
-    else:
-        raise ValueError(f"Unknown embedder_type: {embedder_type}. Use 'single', 'jina', or 'huggingface'.")
+    embedder_type = embedder_type.lower()
+    
+    if embedder_type not in EMBEDDER_REGISTRY:
+        available = list(EMBEDDER_REGISTRY.keys())
+        raise ValueError(f"Unknown embedder_type: '{embedder_type}'. Available: {available}")
+    
+    embedder_class = EMBEDDER_REGISTRY[embedder_type]
+    
+    if config is not None:
+        kwargs['config'] = config
+    
+    return embedder_class(**kwargs)
 
+
+def register_embedder(name: str, embedder_class: Type[BaseEmbedder]) -> None:
+    """
+    Register a custom embedder class.
+    
+    Args:
+        name: Name to register the embedder under
+        embedder_class: Embedder class (must inherit from BaseEmbedder)
+    """
+    if not issubclass(embedder_class, BaseEmbedder):
+        raise TypeError(f"{embedder_class} must inherit from BaseEmbedder")
+    EMBEDDER_REGISTRY[name.lower()] = embedder_class
+    logger.info(f"Registered custom embedder: {name}")
