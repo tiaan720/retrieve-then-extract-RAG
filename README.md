@@ -56,7 +56,7 @@ The pipeline follows a sequential flow:
 1. **DocumentFetcher**: Retrieves articles from Wikipedia using the wikipedia-py library
 2. **TextExtractor**: Cleans and normalizes raw text content using LangChain-style processing
 3. **DocumentChunker**: Splits documents with configurable chunk size and overlap
-4. **EmbeddingGenerator**: Uses LangChain's OllamaEmbeddings for flexibility
+4. **Embedder**: Uses `create_embedder()` factory with support for Ollama, Jina AI, and HuggingFace models
 5. **WeaviateClient**: Manages vector database operations with retry logic
 
 ## Prerequisites

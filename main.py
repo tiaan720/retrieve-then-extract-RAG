@@ -22,7 +22,7 @@ def main():
     )
     
     # Use factory to create embedder - config defaults are used automatically
-    embedder = create_embedder("single", config=config)
+    embedder = create_embedder("ollama", config=config)
     
     weaviate_client = WeaviateClient(
         url=config.WEAVIATE_URL,

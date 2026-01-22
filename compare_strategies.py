@@ -77,21 +77,21 @@ TOPICS = [
     "Classification",
 ]
 
-def build_single_vector_strategies(collection_manager):
+def build_single_vector_strategies(collection_manager, config: Config):
     """Build list of single-vector retrieval strategies."""
     return [
-        StandardHNSW(collection_manager.get_collection("StandardHNSW")),
-        BinaryQuantized(collection_manager.get_collection("BinaryQuantized")),
-        HybridSearch(collection_manager.get_collection("HybridSearch"), alpha=0.7),
-        CrossEncoderRerank(collection_manager.get_collection("CrossEncoderRerank"), rerank_multiplier=4),
-        BinaryInt8Staged(collection_manager.get_collection("BinaryInt8Staged"), rescore_multiplier=4),
+        StandardHNSW(collection_manager.get_collection("StandardHNSW"), config=config),
+        BinaryQuantized(collection_manager.get_collection("BinaryQuantized"), config=config),
+        HybridSearch(collection_manager.get_collection("HybridSearch"), config=config),
+        CrossEncoderRerank(collection_manager.get_collection("CrossEncoderRerank"), config=config),
+        BinaryInt8Staged(collection_manager.get_collection("BinaryInt8Staged"), config=config),
     ]
 
 
-def build_multi_vector_strategies(collection_manager):
+def build_multi_vector_strategies(collection_manager, config: Config):
     """Build list of multi-vector (ColBERT) retrieval strategies."""
     return [
-        ColBERTMultiVector(collection_manager.get_collection("ColBERTMultiVector")),
+        ColBERTMultiVector(collection_manager.get_collection("ColBERTMultiVector"), config=config),
     ]
 
 
@@ -107,7 +107,7 @@ def main():
         chunk_overlap=config.CHUNK_OVERLAP
     )
     
-    embedder = create_embedder("single", config=config)
+    embedder = create_embedder("ollama", config=config)
     
 
     colbert_embedder = None
@@ -162,10 +162,10 @@ def main():
 
         collection_manager.store_chunks_in_all_collections(embedded_chunks)
         
-        strategies = build_single_vector_strategies(collection_manager)
+        strategies = build_single_vector_strategies(collection_manager, config)
         
         if ENABLE_MULTI_VECTOR:
-            strategies.extend(build_multi_vector_strategies(collection_manager))
+            strategies.extend(build_multi_vector_strategies(collection_manager, config))
         
         logger.info(f"Initialized {len(strategies)} strategies")
         

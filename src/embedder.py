@@ -451,25 +451,21 @@ class HuggingFaceEmbedder(MultiVectorEmbedder):
 
 class EmbedderType(Enum):
     """Supported embedder types."""
-    SINGLE = "single"
-    OLLAMA = "ollama"  # Alias for single
+    OLLAMA = "ollama"
     JINA = "jina"
     HUGGINGFACE = "huggingface"
-    HF = "hf"  # Alias for huggingface
 
 
 # Registry mapping embedder types to their classes
 EMBEDDER_REGISTRY: Dict[str, Type[BaseEmbedder]] = {
-    "single": OllamaEmbedder,
     "ollama": OllamaEmbedder,
     "jina": JinaAIEmbedder,
     "huggingface": HuggingFaceEmbedder,
-    "hf": HuggingFaceEmbedder,
 }
 
 
 def create_embedder(
-    embedder_type: str = "single",
+    embedder_type: str = "ollama",
     config: Optional[Config] = None,
     **kwargs
 ) -> BaseEmbedder:
@@ -480,12 +476,12 @@ def create_embedder(
     an optional `config` parameter for centralized configuration.
     
     Args:
-        embedder_type: Type of embedder ("single"/"ollama", "jina", "huggingface"/"hf")
+        embedder_type: Type of embedder ("ollama", "jina", "huggingface")
         config: Configuration object (optional, embedders create their own if not provided)
         **kwargs: Additional arguments passed to the embedder constructor
-            - For single/ollama: base_url, model
+            - For ollama: base_url, model
             - For jina: api_key, model
-            - For huggingface/hf: model_name, device, max_length
+            - For huggingface: model_name, device, max_length
     
     Returns:
         Configured embedder instance
@@ -494,7 +490,7 @@ def create_embedder(
         ValueError: If embedder_type is not recognized
     
     Examples:
-        >>> embedder = create_embedder("single")  # Uses config defaults
+        >>> embedder = create_embedder("ollama")  # Uses config defaults
         >>> embedder = create_embedder("jina", api_key="your-key")
         >>> embedder = create_embedder("huggingface", model_name="colbert-ir/colbertv2.0")
     """
@@ -524,3 +520,5 @@ def register_embedder(name: str, embedder_class: Type[BaseEmbedder]) -> None:
         raise TypeError(f"{embedder_class} must inherit from BaseEmbedder")
     EMBEDDER_REGISTRY[name.lower()] = embedder_class
     logger.info(f"Registered custom embedder: {name}")
+
+
